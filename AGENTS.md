@@ -164,6 +164,12 @@ npm pack
 npm install -g ./ant2chat-0.1.0.tgz
 ```
 
+アンインストール:
+
+```bash
+npm uninstall -g ant2chat
+```
+
 ### npm レジストリへ公開
 
 `package.json` の `"private": true` を削除してから:
@@ -177,6 +183,12 @@ npm publish
 
 ```bash
 npm install -g ant2chat
+```
+
+アンインストール:
+
+```bash
+npm uninstall -g ant2chat
 ```
 
 ### グローバルインストール時の環境変数

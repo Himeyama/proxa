@@ -40,6 +40,12 @@ npm install -g .
 ant2chat
 ```
 
+アンインストール:
+
+```bash
+npm uninstall -g ant2chat
+```
+
 ### tarball から
 
 ```bash
