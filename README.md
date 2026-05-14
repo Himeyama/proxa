@@ -6,6 +6,24 @@ Claude Code などの Anthropic クライアントを、Ollama・LM Studio・vLL
 
 ## インストール
 
+### GitHub から直接インストール（推奨）
+
+```bash
+npm install -g github:himeyama/ant2chat
+```
+
+インストール時に自動でビルドされる。インストール後すぐに使える:
+
+```bash
+ant2chat
+```
+
+アンインストール:
+
+```bash
+npm uninstall -g ant2chat
+```
+
 ### グローバルインストール（ローカルから）
 
 ```bash
