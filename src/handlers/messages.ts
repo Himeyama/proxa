@@ -79,7 +79,10 @@ export async function handleMessages(c: Context): Promise<Response> {
   const model = resolveModel(body.model);
   const messages = toOpenAIMessages(body.messages, body.system);
   const clientTools = toOpenAITools(body.tools);
-  const tools: ToolSet = { "google_search": googleSearchTool, ...clientTools };
+  // WebSearch はクライアント定義を上書きしてサーバー側で実行する
+  const tools: ToolSet = { "google_search": googleSearchTool, ...clientTools, "WebSearch": googleSearchTool };
+  // サーバー側で内部処理するツール名: クライアントには公開しない
+  const serverToolNames = new Set(["google_search", "WebSearch"]);
   const toolChoice = toOpenAIToolChoice(body.tool_choice);
   const msgId = makeMessageId();
 
@@ -141,6 +144,8 @@ export async function handleMessages(c: Context): Promise<Response> {
                 break;
               }
               case "tool-call-streaming-start": {
+                // サーバー側ツールは内部実行のためクライアントに公開しない
+                if (serverToolNames.has(part.toolName)) break;
                 sawToolCall = true;
                 const id = part.toolCallId;
                 if (!toolBlocks.has(id)) {
@@ -161,6 +166,7 @@ export async function handleMessages(c: Context): Promise<Response> {
                 break;
               }
               case "tool-call-delta": {
+                if (serverToolNames.has(part.toolName)) break;
                 sawToolCall = true;
                 const id = part.toolCallId;
                 let entry = toolBlocks.get(id);
@@ -191,6 +197,7 @@ export async function handleMessages(c: Context): Promise<Response> {
                 break;
               }
               case "tool-call": {
+                if (serverToolNames.has(part.toolName)) break;
                 sawToolCall = true;
                 const id = part.toolCallId;
                 let entry = toolBlocks.get(id);
@@ -267,7 +274,8 @@ export async function handleMessages(c: Context): Promise<Response> {
   // 非ストリーミング
   try {
     const result = await generateText(commonParams);
-    const toolCalls = result.toolCalls ?? [];
+    // サーバー側ツールは内部実行済みのためクライアントには返さない
+    const toolCalls = (result.toolCalls ?? []).filter(c => !serverToolNames.has(c.toolName));
     const hasToolCalls = toolCalls.length > 0;
     const stopReason = mapFinishReason(result.finishReason, hasToolCalls);
 
