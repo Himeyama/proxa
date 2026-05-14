@@ -1,8 +1,14 @@
 import { parseArgs } from "node:util";
 
+const PROVIDER_URLS: Record<string, string> = {
+  ollama: "http://localhost:11434/v1",
+  openai: "https://api.openai.com/v1",
+};
+
 const { values } = parseArgs({
   options: {
     url:         { type: "string",  short: "u" },
+    provider:    { type: "string" },
     port:        { type: "string",  short: "p" },
     "api-key":   { type: "string",  short: "k" },
     "auth-type": { type: "string" },
@@ -19,7 +25,8 @@ Usage:
   ant2chat [options]
 
 Options:
-  -u, --url <url>         Upstream base URL (default: http://localhost:11434/v1)
+      --provider <name>   Upstream provider: ollama | openai (default: ollama)
+  -u, --url <url>         Upstream base URL (overrides --provider)
   -p, --port <port>       Listen port (default: 3000)
   -k, --api-key <key>     Upstream API key
       --auth-type <type>  Auth header type: bearer | api-key (default: bearer)
@@ -35,10 +42,25 @@ Environment variables (overridden by CLI options):
   process.exit(0);
 }
 
+function resolveBaseURL(): string {
+  if (values.url && values.provider) {
+    console.warn(`\x1b[33mWarning: --url and --provider are both specified. --url takes precedence.\x1b[0m`);
+  }
+  if (values.url) return String(values.url);
+  if (process.env.CHAT_BASE_URL) return process.env.CHAT_BASE_URL;
+  const provider = values.provider ?? "ollama";
+  const url = PROVIDER_URLS[String(provider)];
+  if (!url) {
+    console.error(`Unknown provider: "${provider}". Available: ${Object.keys(PROVIDER_URLS).join(", ")}`);
+    process.exit(1);
+  }
+  return url;
+}
+
 export type AuthType = "bearer" | "api-key";
 
 export const config = {
-  baseURL:      String(values.url         ?? process.env.CHAT_BASE_URL      ?? "http://localhost:11434/v1"),
+  baseURL:      resolveBaseURL(),
   port:         Number(values.port        ?? process.env.PORT               ?? 3000),
   apiKey:       values["api-key"] != null ? String(values["api-key"]) : (process.env.CHAT_API_KEY ?? ""),
   authType:     String(values["auth-type"] ?? process.env.CHAT_AUTH_TYPE    ?? "bearer") as AuthType,
