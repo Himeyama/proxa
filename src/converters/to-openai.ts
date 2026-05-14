@@ -46,6 +46,11 @@ function toolResultContentToString(content: string | ContentBlockText[]): string
   return content.filter((b) => b.type === "text").map((b) => b.text).join("");
 }
 
+// OpenAI は ^[a-zA-Z0-9_-]+$ のみ許可するため、それ以外の文字を _ に置換する
+function sanitizeToolName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 export function toOpenAIMessages(
   messages: AnthropicMessage[],
   system?: string | SystemBlock[]
@@ -76,7 +81,7 @@ export function toOpenAIMessages(
           parts.push({
             type: "tool-call",
             toolCallId: block.id,
-            toolName: block.name,
+            toolName: sanitizeToolName(block.name),
             args: block.input ?? {},
           });
         }
@@ -117,16 +122,54 @@ export function toOpenAIMessages(
   return result;
 }
 
+// OpenAI が許可しない JSON Schema キーワード
+// OpenAI が許可しない JSON Schema キーワード（format は値によらず常に除去）
+const DISALLOWED_KEYWORDS = new Set(["propertyNames", "if", "then", "else", "not", "contains", "patternProperties", "format"]);
+
+// OpenAI strict モード: 全オブジェクトに additionalProperties:false と全キーの required を再帰的に付与する
+function strictifySchema(node: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...node };
+  for (const key of DISALLOWED_KEYWORDS) delete result[key];
+  if (result.properties && typeof result.properties === "object") {
+    const props = result.properties as Record<string, unknown>;
+    const strictProps: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(props)) {
+      strictProps[k] = strictifySchema(v as Record<string, unknown>);
+    }
+    result.properties = strictProps;
+    // properties に存在するキーのみ required に含める（余分なキーは OpenAI が拒否する）
+    result.required = Object.keys(props);
+    result.additionalProperties = false;
+  }
+  // additionalProperties がスキーマオブジェクト（辞書/マップ型）の場合、
+  // OpenAI strict モードは非対応なので空オブジェクトに変換する
+  if (!result.properties && result.additionalProperties && typeof result.additionalProperties === "object") {
+    result.properties = {};
+    result.required = [];
+    result.additionalProperties = false;
+  }
+  if (result.items && typeof result.items === "object" && !Array.isArray(result.items)) {
+    result.items = strictifySchema(result.items as Record<string, unknown>);
+  }
+  for (const key of ["allOf", "anyOf", "oneOf"] as const) {
+    if (Array.isArray(result[key])) {
+      result[key] = (result[key] as Record<string, unknown>[]).map(strictifySchema);
+    }
+  }
+  return result;
+}
+
 export function toOpenAITools(tools: AnthropicTool[] | undefined): ToolSet | undefined {
   if (!tools || tools.length === 0) return undefined;
   const out: ToolSet = {};
   for (const t of tools) {
     // $schema は多くの OpenAI 互換エンドポイントが拒否するため除去する
-    const { $schema, ...schema } = t.input_schema as Record<string, unknown> & { $schema?: unknown };
+    const raw = (t.input_schema ?? { type: "object", properties: {}, required: [] }) as Record<string, unknown> & { $schema?: unknown };
+    const { $schema, ...schema } = raw;
     void $schema;
-    out[t.name] = {
+    out[sanitizeToolName(t.name)] = {
       description: t.description,
-      parameters: jsonSchema(schema as Parameters<typeof jsonSchema>[0]),
+      parameters: jsonSchema(strictifySchema(schema) as Parameters<typeof jsonSchema>[0]),
     };
   }
   return out;
@@ -149,6 +192,6 @@ export function toOpenAIToolChoice(
     case "none":
       return "none";
     case "tool":
-      return { type: "tool", toolName: choice.name };
+      return { type: "tool", toolName: sanitizeToolName(choice.name) };
   }
 }

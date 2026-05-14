@@ -56,6 +56,7 @@ export const googleSearchTool = {
       query: { type: "string", description: "Search query" },
     },
     required: ["query"],
+    additionalProperties: false,
   }),
   execute: async (args: unknown): Promise<string> => {
     console.log("[google:search] raw args:", JSON.stringify(args));

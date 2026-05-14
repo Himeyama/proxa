@@ -79,7 +79,7 @@ export async function handleMessages(c: Context): Promise<Response> {
   const model = resolveModel(body.model);
   const messages = toOpenAIMessages(body.messages, body.system);
   const clientTools = toOpenAITools(body.tools);
-  const tools: ToolSet = { "google:search": googleSearchTool, ...clientTools };
+  const tools: ToolSet = { "google_search": googleSearchTool, ...clientTools };
   const toolChoice = toOpenAIToolChoice(body.tool_choice);
   const msgId = makeMessageId();
 
