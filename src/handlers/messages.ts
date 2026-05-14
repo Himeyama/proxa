@@ -42,6 +42,25 @@ function makeToolUseId(): string {
   return `toolu_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function extractUpstreamError(err: unknown): { type: string; message: string; statusCode: number } {
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    const statusCode = typeof e.statusCode === "number" ? e.statusCode : 502;
+    const data = e.data as Record<string, unknown> | undefined;
+    const upstreamError = data?.error as Record<string, unknown> | undefined;
+    if (upstreamError) {
+      return {
+        type: typeof upstreamError.type === "string" ? upstreamError.type : "api_error",
+        message: typeof upstreamError.message === "string" ? upstreamError.message : String(err),
+        statusCode,
+      };
+    }
+    const message = typeof e.message === "string" ? e.message : "Upstream error";
+    return { type: "api_error", message, statusCode };
+  }
+  return { type: "api_error", message: "Upstream error", statusCode: 502 };
+}
+
 function mapFinishReason(
   finishReason: string,
   hasToolCalls: boolean
@@ -81,9 +100,9 @@ export async function handleMessages(c: Context): Promise<Response> {
   const messages = toOpenAIMessages(body.messages, body.system);
   const clientTools = toOpenAITools(body.tools);
   // WebSearch はクライアント定義を上書きしてサーバー側で実行する
-  const tools: ToolSet = { "google_search": googleSearchTool, ...clientTools, "WebSearch": googleSearchTool };
+  const tools: ToolSet = { "google_search": googleSearchTool, "google:search": googleSearchTool, ...clientTools, "WebSearch": googleSearchTool };
   // サーバー側で内部処理するツール名: クライアントには公開しない
-  const serverToolNames = new Set(["google_search", "WebSearch"]);
+  const serverToolNames = new Set(["google_search", "google:search", "WebSearch"]);
   const toolChoice = toOpenAIToolChoice(body.tool_choice);
   const msgId = makeMessageId();
 
@@ -234,9 +253,7 @@ export async function handleMessages(c: Context): Promise<Response> {
               }
               case "error": {
                 console.error("[stream] upstream error:", part.error);
-                const message =
-                  part.error instanceof Error ? part.error.message : String(part.error);
-                throw new Error(message);
+                throw part.error;
               }
               default:
                 break;
@@ -255,8 +272,9 @@ export async function handleMessages(c: Context): Promise<Response> {
           enqueue({ type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: outputTokens } });
           enqueue({ type: "message_stop" });
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Upstream error";
-          controller.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "api_error", message } })}\n\n`));
+          console.error("[stream] upstream error:", err);
+          const { type, message } = extractUpstreamError(err);
+          controller.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify({ type: "error", error: { type, message } })}\n\n`));
         } finally {
           controller.close();
         }
@@ -310,7 +328,7 @@ export async function handleMessages(c: Context): Promise<Response> {
     return c.json(response);
   } catch (err) {
     console.error("[non-stream] upstream error:", err);
-    const message = err instanceof Error ? err.message : "Upstream error";
-    return c.json({ type: "error", error: { type: "api_error", message } }, 502);
+    const { type, message, statusCode } = extractUpstreamError(err);
+    return c.json({ type: "error", error: { type, message } }, statusCode as 400 | 401 | 403 | 404 | 429 | 500 | 502);
   }
 }
