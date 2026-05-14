@@ -17,8 +17,8 @@ import type {
   AnthropicStreamEvent,
 } from "../types/anthropic.js";
 
-function getProvider() {
-  const { apiKey, baseURL, authType } = config;
+function getProvider(apiKey: string) {
+  const { baseURL, authType } = config;
   if (authType === "api-key") {
     return createOpenAI({
       apiKey: "no-key",
@@ -75,7 +75,8 @@ export async function handleMessages(c: Context): Promise<Response> {
   };
   console.log(highlightJson(JSON.stringify(summary, null, 2)));
 
-  const provider = getProvider();
+  const apiKey = config.apiKey || c.req.header("x-api-key") || "no-key";
+  const provider = getProvider(apiKey);
   const model = resolveModel(body.model);
   const messages = toOpenAIMessages(body.messages, body.system);
   const clientTools = toOpenAITools(body.tools);
