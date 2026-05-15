@@ -52,7 +52,8 @@ export interface AnthropicRequest {
   model: string;
   messages: AnthropicMessage[];
   system?: string | SystemBlock[];
-  max_tokens: number;
+  max_tokens?: number;
+  max_completion_tokens?: number;
   stream?: boolean;
   temperature?: number;
   top_p?: number;

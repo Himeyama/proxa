@@ -114,7 +114,7 @@ ANTHROPIC_BASE_URL=http://localhost:3000 claude
 
 ### サポートしているリクエストフィールド
 
-`model` / `messages` / `system` / `max_tokens` / `stream` / `temperature` / `top_p` / `stop_sequences` / `tools` / `tool_choice`
+`model` / `messages` / `system` / `max_completion_tokens` / `stream` / `temperature` / `top_p` / `stop_sequences` / `tools` / `tool_choice`
 
 未サポート: `top_k`、`image` コンテンツブロック
 

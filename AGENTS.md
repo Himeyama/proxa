@@ -74,7 +74,7 @@ pnpm start      # ビルド済みファイルで起動
 
 ### サポートしているリクエストフィールド
 
-`model` / `messages` / `system` / `max_tokens` / `stream` / `temperature` / `top_p` / `stop_sequences` / `tools` / `tool_choice`
+`model` / `messages` / `system` / `max_completion_tokens` / `stream` / `temperature` / `top_p` / `stop_sequences` / `tools` / `tool_choice`
 
 未サポート: `top_k`、画像コンテンツ (`image` ブロックはテキスト変換時に無視される)
 

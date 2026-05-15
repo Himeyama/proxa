@@ -109,7 +109,7 @@ export async function handleMessages(c: Context): Promise<Response> {
   const commonParams = {
     model: provider(model),
     messages,
-    maxTokens: body.max_tokens,
+    maxTokens: body.max_completion_tokens,
     temperature: body.temperature,
     topP: body.top_p,
     stopSequences: body.stop_sequences,
