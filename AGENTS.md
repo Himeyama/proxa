@@ -191,6 +191,22 @@ npm install -g ant2chat
 npm uninstall -g ant2chat
 ```
 
+### pnpm 依存関係の追加時の注意
+
+`pnpm add` を実行した際にネイティブビルドを含む依存関係があると、`[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts` が発生する場合があります。ビルドスクリプトを許可するには:
+
+```bash
+pnpm approve-builds
+```
+
+特定パッケージだけ許可する場合は:
+
+```bash
+pnpm approve-builds esbuild@0.27.7
+```
+
+その後、`pnpm add` を再実行してください。
+
 ### グローバルインストール時の環境変数
 
 グローバルインストール後は `.env` ファイルが読み込まれないため、環境変数を直接渡すか、シェルの設定ファイルに書く:
