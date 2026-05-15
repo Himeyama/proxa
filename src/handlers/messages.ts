@@ -61,6 +61,15 @@ function extractUpstreamError(err: unknown): { type: string; message: string; st
   return { type: "api_error", message: "Upstream error", statusCode: 502 };
 }
 
+function stripEmptyStringValues(args: unknown): Record<string, unknown> {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return (args ?? {}) as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args as Record<string, unknown>)) {
+    if (value !== "") result[key] = value;
+  }
+  return result;
+}
+
 function mapFinishReason(
   finishReason: string,
   hasToolCalls: boolean
@@ -206,14 +215,7 @@ export async function handleMessages(c: Context): Promise<Response> {
                     },
                   });
                 }
-                if (part.argsTextDelta) {
-                  entry.argsEmitted = true;
-                  enqueue({
-                    type: "content_block_delta",
-                    index: entry.index,
-                    delta: { type: "input_json_delta", partial_json: part.argsTextDelta },
-                  });
-                }
+                // args は tool-call イベントでフィルタリング後に一括送出するためここでは emit しない
                 break;
               }
               case "tool-call": {
@@ -244,7 +246,7 @@ export async function handleMessages(c: Context): Promise<Response> {
                     index: entry.index,
                     delta: {
                       type: "input_json_delta",
-                      partial_json: JSON.stringify(part.args ?? {}),
+                      partial_json: JSON.stringify(stripEmptyStringValues(part.args)),
                     },
                   });
                   entry.argsEmitted = true;
@@ -307,7 +309,7 @@ export async function handleMessages(c: Context): Promise<Response> {
         type: "tool_use",
         id: call.toolCallId || makeToolUseId(),
         name: call.toolName,
-        input: call.args ?? {},
+        input: stripEmptyStringValues(call.args),
       });
     }
 
