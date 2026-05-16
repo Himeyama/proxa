@@ -85,9 +85,68 @@ export function filterSystemForNonClaudeModel(
   return filtered.join('\n');
 }
 
+// Gemini 思考モデルは functionCall パーツに thought_signature を要求するが、
+// Anthropic フォーマットにその概念がないため、Google プロバイダー使用時は
+// 履歴の tool_use / tool_result をテキストに変換して functionCall パーツを送らない。
+function flattenToolHistory(messages: AnthropicMessage[]): AnthropicMessage[] {
+  // tool_use_id → { name, input, result, isError } のマップを構築
+  const toolUseById = new Map<string, { name: string; input: unknown }>();
+  for (const msg of messages) {
+    if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block.type === "tool_use") {
+          toolUseById.set(block.id, { name: block.name, input: block.input ?? {} });
+        }
+      }
+    }
+  }
+
+  const result: AnthropicMessage[] = [];
+  for (const msg of messages) {
+    if (typeof msg.content === "string") {
+      result.push(msg);
+      continue;
+    }
+
+    if (msg.role === "assistant") {
+      const textParts: string[] = [];
+      for (const block of msg.content) {
+        if (block.type === "text") {
+          textParts.push(block.text);
+        } else if (block.type === "tool_use") {
+          textParts.push(`[Tool Use: ${block.name}]\n${JSON.stringify(block.input ?? {}, null, 2)}`);
+        }
+      }
+      const text = textParts.join("\n").trim();
+      result.push({ role: "assistant", content: text || " " });
+      continue;
+    }
+
+    // user role: tool_result をテキスト化してまとめる
+    const textParts: string[] = [];
+    for (const block of msg.content) {
+      if (block.type === "tool_result") {
+        const tr = block as Extract<ContentBlock, { type: "tool_result" }>;
+        const def = toolUseById.get(tr.tool_use_id);
+        const name = def?.name ?? tr.tool_use_id;
+        const resultText = toolResultContentToString(tr.content);
+        textParts.push(`[Tool Result: ${name}]${tr.is_error ? " (error)" : ""}\n${resultText}`);
+      } else if (block.type === "text") {
+        textParts.push((block as ContentBlockText).text);
+      }
+    }
+    const text = textParts.join("\n").trim();
+    if (text) {
+      result.push({ role: "user", content: text });
+    }
+  }
+  return result;
+}
+
 export function toMessages(
   messages: AnthropicMessage[],
-  system?: string | SystemBlock[]
+  system?: string | SystemBlock[],
+  options?: { flattenToolHistory?: boolean }
 ): CoreMessage[] {
   const result: CoreMessage[] = [];
 
@@ -95,9 +154,13 @@ export function toMessages(
     result.push({ role: "system", content: systemToString(system) });
   }
 
+  const effectiveMessages = options?.flattenToolHistory
+    ? flattenToolHistory(messages)
+    : messages;
+
   // tool_use_id → toolName のマップを事前構築（Gemini は function_response.name が必須）
   const toolNameById = new Map<string, string>();
-  for (const msg of messages) {
+  for (const msg of effectiveMessages) {
     if (msg.role === "assistant" && Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (block.type === "tool_use") {
@@ -107,7 +170,7 @@ export function toMessages(
     }
   }
 
-  for (const msg of messages) {
+  for (const msg of effectiveMessages) {
     const content = msg.content;
 
     if (typeof content === "string") {
