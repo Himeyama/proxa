@@ -58,7 +58,7 @@ npm install -g ./ant2chat-0.1.0.tgz
 ant2chat [options]
 
 Options:
-      --provider <name>   上流プロバイダー: ollama | openai | google (デフォルト: ollama)
+      --provider <name>   上流プロバイダー: ollama | openai | google | gemini (デフォルト: ollama)
   -u, --url <url>         上流ベース URL (--provider より優先)
   -p, --port <port>       Listen ポート (デフォルト: 3000)
   -k, --api-key <key>     上流 API キー
@@ -79,7 +79,7 @@ CLI オプションで上書き可能。
 | `CHAT_BASE_URL` | 上流エンドポイント。デフォルト: `http://localhost:11434/v1` |
 | `CHAT_DEFAULT_MODEL` | デフォルトモデル名。空の場合はクライアントの `model` フィールドをそのまま使う |
 | `OPENAI_API_KEY` | `--provider openai` 使用時の API キーフォールバック |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | `--provider google` 使用時の API キーフォールバック |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | `--provider google` / `--provider gemini` 使用時の API キーフォールバック |
 | `CHAT_AUTH_TYPE` | 認証ヘッダー形式 |
 | `PORT` | Listen ポート。デフォルト: `3000` |
 
@@ -113,6 +113,7 @@ ant2chat
 
 ```bash
 ant2chat --provider openai --api-key sk-xxx --model gpt-4o
+ant2chat --provider gemini --api-key AIzaSy-xxx --model gemini-2.0-flash
 ant2chat --provider google --api-key AIzaSy-xxx --model gemini-2.0-flash
 ant2chat -u http://localhost:11434/v1 -m llama3.2
 ```
@@ -148,9 +149,9 @@ ANTHROPIC_BASE_URL=http://localhost:3000 claude
 
 未サポート: `top_k`、`image` コンテンツブロック
 
-### Google プロバイダーの制約
+### Google / Gemini プロバイダーの制約
 
-`--provider google` 使用時、マルチターン会話で過去の `tool_use` / `tool_result` をテキスト形式に変換する。Gemini 思考モデルはツール呼び出し履歴に `thought_signature` を要求するが、Anthropic フォーマットにその概念がないため署名が失われる。テキスト形式で代替することで `INVALID_ARGUMENT (400)` エラーを回避する。
+`--provider google` / `--provider gemini` 使用時、マルチターン会話で過去の `tool_use` / `tool_result` をテキスト形式に変換する。Gemini 思考モデルはツール呼び出し履歴に `thought_signature` を要求するが、Anthropic フォーマットにその概念がないため署名が失われる。テキスト形式で代替することで `INVALID_ARGUMENT (400)` エラーを回避する。
 
 ## 開発
 

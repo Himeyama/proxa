@@ -16,10 +16,14 @@ import type {
   AnthropicStreamEvent,
 } from "../types/anthropic.js";
 
+function isGoogleProvider(providerName: string): boolean {
+  return providerName === "google" || providerName === "gemini";
+}
+
 function getProvider(apiKey: string) {
-  const { baseURL, authType, providerName } = config;
-  if (providerName === "google") {
-    return createGoogleGenerativeAI({ apiKey });
+  const { baseURL, customBaseURL, authType, providerName } = config;
+  if (isGoogleProvider(providerName)) {
+    return createGoogleGenerativeAI({ apiKey, ...(customBaseURL ? { baseURL: customBaseURL } : {}) });
   }
   if (authType === "api-key") {
     return createOpenAI({
@@ -115,9 +119,9 @@ export async function handleMessages(c: Context): Promise<Response> {
     ? filterSystemForNonClaudeModel(body.system, model)
     : body.system;
   const messages = toMessages(body.messages, system, {
-    flattenToolHistory: config.providerName === "google",
+    flattenToolHistory: isGoogleProvider(config.providerName),
   });
-  const clientTools = config.providerName === "google"
+  const clientTools = isGoogleProvider(config.providerName)
     ? toGeminiTools(body.tools)
     : toChatCompletionsTools(body.tools);
   // WebSearch はクライアント定義を上書きしてサーバー側で実行する
