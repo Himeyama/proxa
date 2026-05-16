@@ -2,6 +2,10 @@
 
 Anthropic Messages API (`/v1/messages`) を受け取り、OpenAI 互換の Chat Completions API へ変換して転送するプロキシサーバー。
 
+## ドキュメント更新ルール
+
+コードに変更を加えた場合は、**必ず `AGENTS.md` と `README.md` の両方を最新の状態に更新すること。** CLI オプション・環境変数・エンドポイント・変換ルール・アーキテクチャなど、変更内容に関連するすべてのセクションを見直すこと。
+
 ## アーキテクチャ
 
 ```
@@ -37,16 +41,35 @@ src/
     └── anthropic.ts          # Anthropic API の型定義 (Request / Response / SSE イベント / Tool)
 ```
 
+## CLI オプション
+
+```
+ant2chat [options]
+
+Options:
+      --provider <name>   上流プロバイダー: ollama | openai (デフォルト: ollama)
+  -u, --url <url>         上流ベース URL (--provider より優先)
+  -p, --port <port>       Listen ポート (デフォルト: 3000)
+  -k, --api-key <key>     上流 API キー
+      --auth-type <type>  認証ヘッダー形式: bearer | api-key (デフォルト: bearer)
+  -m, --model <model>     モデル名を強制指定 (クライアントの model フィールドを上書き)
+  -h, --help              ヘルプを表示
+```
+
+優先順位: **CLI オプション → 環境変数 → クライアント指定**
+
 ## 環境変数
+
+CLI オプションで上書き可能。`.env.example` をコピーして `.env` を作成すること。
 
 | 変数名 | 必須 | 説明 |
 |---|---|---|
 | `CHAT_API_KEY` | 推奨 | 上流 API の認証キー |
 | `CHAT_BASE_URL` | 任意 | 上流エンドポイント。デフォルト: `http://localhost:11434/v1` |
-| `CHAT_DEFAULT_MODEL` | 任意 | 空の場合はクライアントの `model` フィールドをそのまま使う |
+| `CHAT_DEFAULT_MODEL` | 任意 | デフォルトモデル名。`--model` CLI オプションで上書き可能 |
+| `OPENAI_API_KEY` | 任意 | `--provider openai` 使用時の API キーフォールバック |
+| `CHAT_AUTH_TYPE` | 任意 | 認証ヘッダー形式: bearer \| api-key |
 | `PORT` | 任意 | Listen ポート。デフォルト: `3000` |
-
-`.env.example` をコピーして `.env` を作成すること。
 
 ## コマンド
 

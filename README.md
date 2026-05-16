@@ -52,14 +52,35 @@ npm uninstall -g ant2chat
 npm install -g ./ant2chat-0.1.0.tgz
 ```
 
+## CLI オプション
+
+```
+ant2chat [options]
+
+Options:
+      --provider <name>   上流プロバイダー: ollama | openai (デフォルト: ollama)
+  -u, --url <url>         上流ベース URL (--provider より優先)
+  -p, --port <port>       Listen ポート (デフォルト: 3000)
+  -k, --api-key <key>     上流 API キー
+      --auth-type <type>  認証ヘッダー形式: bearer | api-key (デフォルト: bearer)
+  -m, --model <model>     モデル名を強制指定 (クライアントの model フィールドを上書き)
+  -h, --help              ヘルプを表示
+```
+
+優先順位: CLI オプション → 環境変数 → クライアント指定
+
 ## 環境変数
 
-| 変数名 | 必須 | 説明 |
-|---|---|---|
-| `CHAT_API_KEY` | 推奨 | 上流 API の認証キー |
-| `CHAT_BASE_URL` | 任意 | 上流エンドポイント。デフォルト: `http://localhost:11434/v1` |
-| `CHAT_DEFAULT_MODEL` | 任意 | 空の場合はクライアントの `model` フィールドをそのまま使う |
-| `PORT` | 任意 | Listen ポート。デフォルト: `3000` |
+CLI オプションで上書き可能。
+
+| 変数名 | 説明 |
+|---|---|
+| `CHAT_API_KEY` | 上流 API の認証キー |
+| `CHAT_BASE_URL` | 上流エンドポイント。デフォルト: `http://localhost:11434/v1` |
+| `CHAT_DEFAULT_MODEL` | デフォルトモデル名。空の場合はクライアントの `model` フィールドをそのまま使う |
+| `OPENAI_API_KEY` | `--provider openai` 使用時の API キーフォールバック |
+| `CHAT_AUTH_TYPE` | 認証ヘッダー形式 |
+| `PORT` | Listen ポート。デフォルト: `3000` |
 
 ### 設定方法
 
@@ -85,6 +106,13 @@ pnpm dev
 $env:CHAT_BASE_URL="http://localhost:11434/v1"
 $env:CHAT_API_KEY="sk-xxx"
 ant2chat
+```
+
+### CLI オプションで指定する場合
+
+```bash
+ant2chat --provider openai --api-key sk-xxx --model gpt-4o
+ant2chat -u http://localhost:11434/v1 -m llama3.2
 ```
 
 ## 使い方
