@@ -67,7 +67,9 @@ function resolveApiKey(): string {
   if (process.env.CHAT_API_KEY) return process.env.CHAT_API_KEY;
   const provider = values.provider ?? "ollama";
   if (String(provider) === "openai" && process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
-  console.warn(`\x1b[33mWarning: No API key specified. Set --api-key, CHAT_API_KEY, or (for --provider openai) OPENAI_API_KEY.\x1b[0m`);
+  if (String(provider) !== "ollama") {
+    console.warn(`\x1b[33mWarning: No API key specified. Set --api-key, CHAT_API_KEY, or (for --provider openai) OPENAI_API_KEY.\x1b[0m`);
+  }
   return "";
 }
 
