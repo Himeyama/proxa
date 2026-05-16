@@ -53,6 +53,7 @@ Options:
   -k, --api-key <key>     上流 API キー
       --auth-type <type>  認証ヘッダー形式: bearer | api-key (デフォルト: bearer)
   -m, --model <model>     モデル名を強制指定 (クライアントの model フィールドを上書き)
+  -g, --global            0.0.0.0 でリッスン (ネットワークに公開)
   -h, --help              ヘルプを表示
 ```
 

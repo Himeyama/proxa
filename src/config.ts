@@ -17,6 +17,7 @@ const { values } = parseArgs({
     "api-key":   { type: "string",  short: "k" },
     "auth-type": { type: "string" },
     model:       { type: "string",  short: "m" },
+    global:      { type: "boolean", short: "g" },
     help:        { type: "boolean", short: "h" },
   },
   strict: false,
@@ -36,6 +37,7 @@ Options:
   -k, --api-key <key>     Upstream API key
       --auth-type <type>  Auth header type: bearer | api-key (default: bearer)
   -m, --model <model>     Force model name (overrides client's model field)
+  -g, --global            Listen on 0.0.0.0 (expose to network)
   -h, --help              Show this help
 
 Environment variables (overridden by CLI options):
@@ -88,6 +90,7 @@ export const config = {
   baseURL:       resolveBaseURL(providerName),
   customBaseURL,
   port:          Number(values.port        ?? process.env.PORT               ?? 3000),
+  global:        Boolean(values.global),
   apiKey:        resolveApiKey(providerName),
   authType:      String(values["auth-type"] ?? process.env.CHAT_AUTH_TYPE    ?? "bearer") as AuthType,
   defaultModel:  values.model != null ? String(values.model) : (process.env.CHAT_DEFAULT_MODEL ?? ""),
