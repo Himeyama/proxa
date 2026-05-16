@@ -47,7 +47,7 @@ src/
 ant2chat [options]
 
 Options:
-      --provider <name>   上流プロバイダー: ollama | openai | responses | google | gemini (デフォルト: ollama)
+      --provider <name>   上流プロバイダー: ollama | openai | responses | openrouter | google | gemini (デフォルト: ollama)
   -u, --url <url>         上流ベース URL (--provider より優先)
   -p, --port <port>       Listen ポート (デフォルト: 3000)
   -k, --api-key <key>     上流 API キー
@@ -68,6 +68,7 @@ CLI オプションで上書き可能。`.env.example` をコピーして `.env`
 | `CHAT_BASE_URL` | 任意 | 上流エンドポイント。デフォルト: `http://localhost:11434/v1` |
 | `CHAT_DEFAULT_MODEL` | 任意 | デフォルトモデル名。`--model` CLI オプションで上書き可能 |
 | `OPENAI_API_KEY` | 任意 | `--provider openai` / `--provider responses` 使用時の API キーフォールバック |
+| `OPENROUTER_API_KEY` | 任意 | `--provider openrouter` 使用時の API キーフォールバック |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | 任意 | `--provider google` / `--provider gemini` 使用時の API キーフォールバック |
 | `CHAT_AUTH_TYPE` | 任意 | 認証ヘッダー形式: bearer \| api-key |
 | `PORT` | 任意 | Listen ポート。デフォルト: `3000` |
@@ -113,6 +114,10 @@ pnpm start      # ビルド済みファイルで起動
 ### OpenAI Responses API プロバイダー
 
 `--provider responses` 使用時、`getProvider()` が返す OpenAI プロバイダーの `.responses(model)` を使い、上流を Chat Completions ではなく Responses API (`/v1/responses`) に転送する (`isResponsesProvider()` で判定)。ベース URL は `https://api.openai.com/v1`。reasoning モデルの思考出力は `thinking` / `redacted_thinking` ブロックに変換する (下記「変換ルール」参照)。
+
+### OpenRouter プロバイダー
+
+`--provider openrouter` 使用時、上流を OpenRouter の Chat Completions 互換エンドポイント (`https://openrouter.ai/api/v1`) に転送する。認証は bearer 形式で、`createOpenAI` のデフォルト経路をそのまま使う。モデル名は `anthropic/claude-3.5-sonnet` のように `<provider>/<model>` 形式で指定する (クライアントの `model` フィールドまたは `--model` / `CHAT_DEFAULT_MODEL` で指定)。
 
 ### Google / Gemini プロバイダーの制約
 

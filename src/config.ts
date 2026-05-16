@@ -4,6 +4,7 @@ const PROVIDER_URLS: Record<string, string> = {
   ollama: "http://localhost:11434/v1",
   openai: "https://api.openai.com/v1",
   responses: "https://api.openai.com/v1",
+  openrouter: "https://openrouter.ai/api/v1",
   google: "https://generativelanguage.googleapis.com/v1beta",
   gemini: "https://generativelanguage.googleapis.com/v1beta",
 };
@@ -29,7 +30,7 @@ Usage:
   ant2chat [options]
 
 Options:
-      --provider <name>   Upstream provider: ollama | openai | responses | google | gemini (default: ollama)
+      --provider <name>   Upstream provider: ollama | openai | responses | openrouter | google | gemini (default: ollama)
   -u, --url <url>         Upstream base URL (overrides --provider)
   -p, --port <port>       Listen port (default: 3000)
   -k, --api-key <key>     Upstream API key
@@ -42,6 +43,7 @@ Environment variables (overridden by CLI options):
   PORT                           Listen port
   CHAT_API_KEY                   Upstream API key
   OPENAI_API_KEY                 API key fallback when --provider openai/responses is used
+  OPENROUTER_API_KEY             API key fallback when --provider openrouter is used
   GOOGLE_GENERATIVE_AI_API_KEY   API key fallback when --provider google is used
   CHAT_AUTH_TYPE                 Auth header type
   CHAT_DEFAULT_MODEL             Default model name
@@ -69,9 +71,10 @@ function resolveApiKey(provider: string): string {
   if (values["api-key"] != null) return String(values["api-key"]);
   if (process.env.CHAT_API_KEY) return process.env.CHAT_API_KEY;
   if ((provider === "openai" || provider === "responses") && process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
+  if (provider === "openrouter" && process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
   if ((provider === "google" || provider === "gemini") && process.env.GOOGLE_GENERATIVE_AI_API_KEY) return process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (provider !== "ollama") {
-    console.warn(`\x1b[33mWarning: No API key specified. Set --api-key, CHAT_API_KEY, or (for --provider openai) OPENAI_API_KEY, (for --provider google/gemini) GOOGLE_GENERATIVE_AI_API_KEY.\x1b[0m`);
+    console.warn(`\x1b[33mWarning: No API key specified. Set --api-key, CHAT_API_KEY, or (for --provider openai) OPENAI_API_KEY, (for --provider openrouter) OPENROUTER_API_KEY, (for --provider google/gemini) GOOGLE_GENERATIVE_AI_API_KEY.\x1b[0m`);
   }
   return "";
 }
