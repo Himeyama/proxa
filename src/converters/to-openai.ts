@@ -51,6 +51,41 @@ function sanitizeToolName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
+export function filterSystemForNonClaudeModel(
+  system: string | SystemBlock[],
+  model: string
+): string {
+  const text = systemToString(system);
+  const lines = text.split('\n');
+  const filtered: string[] = [];
+  let inEnvSection = false;
+  let lastEnvBulletIdx = -1;
+
+  for (const line of lines) {
+    if (/^#\s*Environment\b/.test(line)) {
+      inEnvSection = true;
+    } else if (inEnvSection && /^#/.test(line)) {
+      inEnvSection = false;
+    }
+
+    if (inEnvSection && /^\s*-\s/.test(line) && /claude/i.test(line)) {
+      continue;
+    }
+
+    if (inEnvSection && /^\s*-\s/.test(line)) {
+      lastEnvBulletIdx = filtered.length;
+    }
+
+    filtered.push(line);
+  }
+
+  if (lastEnvBulletIdx !== -1) {
+    filtered.splice(lastEnvBulletIdx + 1, 0, ` - You are powered by the model named ${model}.`);
+  }
+
+  return filtered.join('\n');
+}
+
 export function toOpenAIMessages(
   messages: AnthropicMessage[],
   system?: string | SystemBlock[]

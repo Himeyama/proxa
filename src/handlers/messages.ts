@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import { config } from "../config.js";
 import { highlightJson } from "../server.js";
 import {
+  filterSystemForNonClaudeModel,
   toOpenAIMessages,
   toOpenAIToolChoice,
   toOpenAITools,
@@ -106,7 +107,10 @@ export async function handleMessages(c: Context): Promise<Response> {
   const apiKey = config.apiKey || c.req.header("x-api-key") || "no-key";
   const provider = getProvider(apiKey);
   const model = resolveModel(body.model);
-  const messages = toOpenAIMessages(body.messages, body.system);
+  const system = body.system != null && !model.toLowerCase().includes("claude")
+    ? filterSystemForNonClaudeModel(body.system, model)
+    : body.system;
+  const messages = toOpenAIMessages(body.messages, system);
   const clientTools = toOpenAITools(body.tools);
   // WebSearch はクライアント定義を上書きしてサーバー側で実行する
   const tools: ToolSet = { ...clientTools, "google_search": googleSearchTool, "WebSearch": googleSearchTool };
