@@ -36,6 +36,7 @@ Environment variables (overridden by CLI options):
   CHAT_BASE_URL           Upstream base URL
   PORT                    Listen port
   CHAT_API_KEY            Upstream API key
+  OPENAI_API_KEY          API key fallback when --provider openai is used
   CHAT_AUTH_TYPE          Auth header type
   CHAT_DEFAULT_MODEL      Default model name
 `);
@@ -59,10 +60,19 @@ function resolveBaseURL(): string {
 
 export type AuthType = "bearer" | "api-key";
 
+function resolveApiKey(): string {
+  if (values["api-key"] != null) return String(values["api-key"]);
+  if (process.env.CHAT_API_KEY) return process.env.CHAT_API_KEY;
+  const provider = values.provider ?? "ollama";
+  if (String(provider) === "openai" && process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
+  console.warn(`\x1b[33mWarning: No API key specified. Set --api-key, CHAT_API_KEY, or (for --provider openai) OPENAI_API_KEY.\x1b[0m`);
+  return "";
+}
+
 export const config = {
   baseURL:      resolveBaseURL(),
   port:         Number(values.port        ?? process.env.PORT               ?? 3000),
-  apiKey:       values["api-key"] != null ? String(values["api-key"]) : (process.env.CHAT_API_KEY ?? ""),
+  apiKey:       resolveApiKey(),
   authType:     String(values["auth-type"] ?? process.env.CHAT_AUTH_TYPE    ?? "bearer") as AuthType,
   defaultModel: process.env.CHAT_DEFAULT_MODEL ?? "",
 };
