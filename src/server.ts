@@ -39,12 +39,19 @@ function colorMethod(method: string): string {
 export function createApp() {
   const app = new Hono();
 
+  const SENSITIVE_HEADERS = new Set(["authorization", "x-api-key", "api-key"]);
+
   // リクエストロガー
   app.use("*", async (c, next) => {
     const method = colorMethod(c.req.method);
     const url = `${C.cyan}${c.req.path}${C.reset}`;
     const headerLines = [...c.req.raw.headers.entries()]
-      .map(([k, v]) => `  ${C.dim}${k}:${C.reset} ${v}`)
+      .map(([k, v]) => {
+        const masked = SENSITIVE_HEADERS.has(k.toLowerCase())
+          ? `${v.slice(0, 8)}***`
+          : v;
+        return `  ${C.dim}${k}:${C.reset} ${masked}`;
+      })
       .join("\n");
 
     console.log(`${method} ${url}\n${headerLines}`);

@@ -141,7 +141,8 @@ export async function handleMessages(c: Context): Promise<Response> {
     return c.json({ type: "error", error: { type: "invalid_request_error", message: "Invalid JSON" } }, 400);
   }
 
-  const apiKey = config.apiKey || c.req.header("x-api-key") || "";
+  // サーバー側 API キーが設定済みの場合はクライアントの x-api-key を無視する
+  const apiKey = config.apiKey !== "" ? config.apiKey : (c.req.header("x-api-key") ?? "");
   const provider = getProvider(apiKey);
   const model = resolveModel(body.model);
 
