@@ -59,7 +59,7 @@ ant2chat [options]
 
 Options:
       --provider <name>   上流プロバイダー: ollama | openai | responses | openrouter | google | gemini (デフォルト: ollama)
-  -u, --url <url>         上流ベース URL (--provider より優先)
+  -u, --url <url>         上流ベース URL。--provider 省略時は URL からプロバイダーを自動判定
   -p, --port <port>       Listen ポート (デフォルト: 3000)
   -k, --api-key <key>     上流 API キー
       --auth-type <type>  認証ヘッダー形式: bearer | api-key (デフォルト: bearer)

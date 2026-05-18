@@ -33,7 +33,7 @@ Usage:
 
 Options:
       --provider <name>   Upstream provider: ollama | openai | responses | openrouter | google | gemini (default: ollama)
-  -u, --url <url>         Upstream base URL (overrides --provider)
+  -u, --url <url>         Upstream base URL. Provider is auto-detected from the URL when --provider is omitted
   -p, --port <port>       Listen port (default: 3000)
   -k, --api-key <key>     Upstream API key
       --auth-type <type>  Auth header type: bearer | api-key (default: bearer)
@@ -56,8 +56,24 @@ Environment variables (overridden by CLI options):
   process.exit(0);
 }
 
+const URL_PROVIDER_PATTERNS: Array<[RegExp, string]> = [
+  [/api\.openai\.com/, "openai"],
+  [/openrouter\.ai/, "openrouter"],
+  [/generativelanguage\.googleapis\.com/, "google"],
+  [/localhost:11434/, "ollama"],
+];
+
+function detectProviderFromURL(url: string): string {
+  for (const [pattern, name] of URL_PROVIDER_PATTERNS) {
+    if (pattern.test(url)) return name;
+  }
+  return "custom";
+}
+
 function resolveProvider(): string {
-  return String(values.provider ?? "ollama");
+  if (values.provider) return String(values.provider);
+  if (values.url) return detectProviderFromURL(String(values.url));
+  return "ollama";
 }
 
 function resolveBaseURL(provider: string): string {
@@ -69,6 +85,7 @@ function resolveBaseURL(provider: string): string {
     }
     return PROVIDER_URLS[provider];
   }
+  // --url のみ指定された場合: values.url は先頭の分岐で返済済み。ここには到達しない
   if (process.env.CHAT_BASE_URL) return process.env.CHAT_BASE_URL;
   return PROVIDER_URLS[provider]; // ollama デフォルト
 }
@@ -81,7 +98,7 @@ function resolveApiKey(provider: string): string {
   if ((provider === "openai" || provider === "responses") && process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
   if (provider === "openrouter" && process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
   if ((provider === "google" || provider === "gemini") && process.env.GOOGLE_GENERATIVE_AI_API_KEY) return process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (provider !== "ollama") {
+  if (provider !== "ollama" && provider !== "custom") {
     console.warn(`\x1b[33mWarning: No API key specified. Set --api-key, CHAT_API_KEY, or (for --provider openai) OPENAI_API_KEY, (for --provider openrouter) OPENROUTER_API_KEY, (for --provider google/gemini) GOOGLE_GENERATIVE_AI_API_KEY.\x1b[0m`);
   }
   return "";
