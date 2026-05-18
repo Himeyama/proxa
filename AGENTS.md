@@ -295,3 +295,8 @@ $env:CHAT_API_KEY="sk-xxx"; $env:CHAT_BASE_URL="https://api.example.com/v1"; ant
 - **`tool_result` 内の画像対応**: `toolResultContentToString` を拡張し、`tool_result` の `content` に含まれる画像ブロックを処理する
 - **認証**: `src/server.ts` に Hono ミドルウェアを追加して `x-api-key` ヘッダーを検証する
 - **ロギング**: `src/server.ts` の `createApp()` に `logger()` ミドルウェア (`hono/logger`) を追加する
+- **画像コンテンツ対応**: `messages[].content` の `image` ブロックを現在は無視しているが、OpenAI / Gemini のマルチモーダル形式 (base64 / URL) に変換して転送できる。`src/converters/shared.ts` の `toMessages()` を修正する
+- **`/v1/models` エンドポイント**: OpenAI 互換クライアントが送るモデル一覧リクエストへ対応する。`src/server.ts` に `GET /v1/models` ルートを追加し、上流の `/models` に中継するか固定レスポンスを返す
+- **サーバー側認証 (`--proxy-key`)**: `--global` でネットワーク公開する際に、リクエストの `x-api-key` ヘッダーを検証するミドルウェアを `src/server.ts` に追加する。CLI オプション `--proxy-key` または環境変数 `PROXY_API_KEY` でキーを設定できるようにする
+- **`top_k` 対応**: Google / Gemini プロバイダーに限り `topK` パラメーターを渡す。`toProviderOptions()` 内で `providerOptions.google.topK` に変換する
+- **フォールバック/リトライ**: `--fallback-url` オプションを追加し、上流が 5xx / タイムアウトを返したときに別のエンドポイントへ再試行する。`src/handlers/messages.ts` の `getProvider()` をリスト対応に拡張する
