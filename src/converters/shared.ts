@@ -204,14 +204,10 @@ export function toMessages(
     }
 
     // user role
-    // tool_result より前にあるテキスト/画像を先に user メッセージとして送出する
+    // OpenAI は assistant の tool_calls 直後に tool メッセージを要求するため、
+    // tool_result を先に push し、テキスト/画像はその後に user メッセージとして追加する
     const toolResults = content.filter((b) => b.type === "tool_result");
     const textBlocks = content.filter((b) => b.type === "text" || b.type === "image");
-
-    if (textBlocks.length > 0 && toolResults.length > 0) {
-      // tool_result と text が混在: text を先行 user メッセージとして挿入
-      result.push({ role: "user", content: userBlocksToParts(textBlocks as ContentBlock[]) });
-    }
 
     if (toolResults.length > 0) {
       result.push({
@@ -229,7 +225,7 @@ export function toMessages(
       });
     }
 
-    if (textBlocks.length > 0 && toolResults.length === 0) {
+    if (textBlocks.length > 0) {
       result.push({ role: "user", content: userBlocksToParts(textBlocks as ContentBlock[]) });
     }
   }
