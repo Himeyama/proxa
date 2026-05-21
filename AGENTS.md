@@ -11,7 +11,8 @@ Anthropic Messages API (`/v1/messages`) および OpenAI Responses API (`/v1/res
 ```
 クライアント
   │  POST /v1/messages (Anthropic 形式)
-  │  POST /v1/responses (OpenAI Responses API 形式)
+  │  POST /v1/responses (HTTP)
+  │  WS   /v1/responses (WebSocket)
   ▼
 [Hono サーバー]  src/server.ts
   │
@@ -20,8 +21,10 @@ Anthropic Messages API (`/v1/messages`) および OpenAI Responses API (`/v1/res
   │    ▼
   │  [toMessages / toChatCompletionsTools / toGeminiTools]  src/converters/
   │
-  └─ handleResponses  src/handlers/responses.ts
-       │  リクエスト変換 (Responses API → CoreMessage)
+  ├─ handleResponses  src/handlers/responses.ts  (HTTP POST)
+  │    │
+  └─ handleResponsesWs  src/handlers/responses-ws.ts  (WebSocket upgrade)
+       │  リクエスト変換 (Responses API → CoreMessage)  ← emitStreamingLoop を共有
        ▼
      [toMessagesFromResponses / toToolsFromResponses]  src/converters/from-responses.ts
   │
@@ -31,7 +34,7 @@ Anthropic Messages API (`/v1/messages`) および OpenAI Responses API (`/v1/res
 上流エンドポイント (Chat Completions / Google Gemini API)
   │  レスポンス変換
   ▼
-クライアントへ返却 (Anthropic 形式 / Responses API 形式 / SSE)
+クライアントへ返却 (Anthropic 形式 / Responses API 形式 / SSE / WebSocket)
 ```
 
 ## ファイル構成
@@ -43,7 +46,8 @@ src/
 ├── config.ts                    # CLI オプション・環境変数の解決
 ├── handlers/
 │   ├── messages.ts              # POST /v1/messages の処理。ストリーム・非ストリーム両対応
-│   ├── responses.ts             # POST /v1/responses の処理。Responses API 互換
+│   ├── responses.ts             # POST /v1/responses の処理 + buildResponsesParams / emitStreamingLoop をエクスポート
+│   ├── responses-ws.ts          # WebSocket /v1/responses の処理。emitStreamingLoop を再利用
 │   └── provider.ts              # getProvider / resolveModel / extractUpstreamError など共通ユーティリティ
 ├── converters/
 │   ├── shared.ts                # toMessages / toToolChoice / filterSystem など共通変換
@@ -109,7 +113,8 @@ pnpm start      # ビルド済みファイルで起動
 |---|---|---|
 | `GET` | `/` | ヘルスチェック。`{"status":"ok"}` を返す |
 | `POST` | `/v1/messages` | Anthropic Messages API 互換エンドポイント |
-| `POST` | `/v1/responses` | OpenAI Responses API 互換エンドポイント |
+| `POST` | `/v1/responses` | OpenAI Responses API 互換エンドポイント (HTTP) |
+| `WS` | `/v1/responses` | OpenAI Responses API 互換エンドポイント (WebSocket) |
 
 ### `/v1/messages` の動作
 
@@ -138,10 +143,18 @@ pnpm start      # ビルド済みファイルで起動
 
 OpenAI Responses API 互換エンドポイント。クライアントから Responses API 形式でリクエストを受け取り、上流へは Chat Completions として転送し、レスポンスを Responses API 形式で返す。
 
+**HTTP POST:**
 - `stream: false` (省略時) → 同期レスポンス。`{ object: "response", output: [...] }` 形式
 - `stream: true` → SSE ストリーム。イベント順は OpenAI Responses API 仕様に準拠:
   - テキスト: `response.created` → `response.output_item.added` → `response.content_part.added` → `response.output_text.delta` (×N) → `response.output_text.done` → `response.content_part.done` → `response.output_item.done` → `response.completed`
   - ツール呼び出し: `response.output_item.added` → `response.function_call_arguments.delta` (×N) → `response.function_call_arguments.done` → `response.output_item.done`
+
+**WebSocket (`ws://host/v1/responses`):**
+- Codex CLI など WebSocket トランスポートを使うクライアントに対応。`index.ts` で Node.js の `upgrade` イベントを `ws` パッケージで処理する
+- クライアントは接続後、最初のメッセージとしてリクエスト JSON を送信する (`ResponsesRequest` と同形式)
+- サーバーは常にストリーミングとして動作し、HTTP SSE と同じイベント列を WebSocket テキストフレーム (JSON 文字列) で送信する
+- 完了後サーバー側からコネクションをクローズする
+- ストリーミングループは `emitStreamingLoop` (`responses.ts`) を HTTP / WebSocket で共有している
 
 #### サポートしているリクエストフィールド
 

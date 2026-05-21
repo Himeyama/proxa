@@ -14,14 +14,15 @@ function parseArgs(args: string): unknown {
 }
 
 function inputMessageToCore(msg: ResponseInputMessage): CoreMessage {
-  const { role, content } = msg;
+  const rawRole = msg.role === "developer" ? "system" : msg.role;
+  const { content } = msg;
   if (typeof content === "string") {
-    return { role: role as "user" | "assistant" | "system", content };
+    return { role: rawRole as "user" | "assistant" | "system", content };
   }
   const text = (content as Array<{ type: string; text?: string }>)
     .map(p => p.text ?? "")
     .join("");
-  return { role: role as "user" | "assistant" | "system", content: text };
+  return { role: rawRole as "user" | "assistant" | "system", content: text };
 }
 
 export function toMessagesFromResponses(
@@ -111,16 +112,44 @@ export function toMessagesFromResponses(
   return result;
 }
 
+// OpenAI の strict スキーマ要件に合わせ、全 object に additionalProperties:false を付与し
+// required に全キーを補完する（再帰）
+function normalizeSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  if (schema.type === "array" && schema.items && typeof schema.items === "object") {
+    return { ...schema, items: normalizeSchema(schema.items as Record<string, unknown>) };
+  }
+  if (schema.type !== "object" && !schema.properties) return schema;
+  const props = (schema.properties ?? {}) as Record<string, unknown>;
+  const existing = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  const allKeys = Object.keys(props);
+  const required = [...new Set([...existing, ...allKeys])];
+  const normalizedProps: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) {
+    normalizedProps[k] = typeof v === "object" && v !== null
+      ? normalizeSchema(v as Record<string, unknown>)
+      : v;
+  }
+  return { ...schema, properties: normalizedProps, required, additionalProperties: false };
+}
+
 export function toToolsFromResponses(tools: ResponseTool[] | undefined): ToolSet | undefined {
   if (!tools || tools.length === 0) return undefined;
   const out: ToolSet = {};
   for (const t of tools) {
-    const raw = (t.parameters ?? { type: "object", properties: {}, required: [] }) as Record<string, unknown> & { $schema?: unknown };
+    // null / undefined 要素をスキップ
+    if (t == null) continue;
+    // Chat Completions 形式 { type: "function", function: { name, description, parameters } } にも対応
+    const fn = (t as unknown as { function?: { name?: string; description?: string; parameters?: Record<string, unknown> } }).function;
+    const name = t.name ?? fn?.name;
+    const description = t.description ?? fn?.description;
+    const parameters = t.parameters ?? fn?.parameters;
+    if (!name) continue;
+    const raw = (parameters ?? { type: "object", properties: {}, required: [] }) as Record<string, unknown> & { $schema?: unknown };
     const { $schema, ...schema } = raw;
     void $schema;
-    out[sanitizeToolName(t.name)] = {
-      description: t.description,
-      parameters: jsonSchema(schema as Parameters<typeof jsonSchema>[0]),
+    out[sanitizeToolName(name)] = {
+      description,
+      parameters: jsonSchema(normalizeSchema(schema) as Parameters<typeof jsonSchema>[0]),
     };
   }
   return out;

@@ -6,7 +6,7 @@ export type ResponseOutputTextPart = { type: "output_text"; text: string; annota
 
 export interface ResponseInputMessage {
   type?: "message";
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "developer";
   content: string | ResponseInputTextPart[] | ResponseOutputTextPart[];
 }
 
@@ -100,7 +100,7 @@ export interface ResponsesResponse {
 }
 
 // SSE イベント型
-type ResponseInProgress = Omit<ResponsesResponse, "output" | "usage"> & { output: []; usage: null };
+type ResponseInProgress = Omit<ResponsesResponse, "output"> & { output: [] };
 
 export type ResponsesStreamEvent =
   | { type: "response.created"; response: ResponseInProgress }

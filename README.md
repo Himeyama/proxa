@@ -156,7 +156,8 @@ ANTHROPIC_BASE_URL=http://localhost:3000 claude
 |---|---|---|
 | `GET` | `/` | ヘルスチェック。`{"status":"ok"}` を返す |
 | `POST` | `/v1/messages` | Anthropic Messages API 互換エンドポイント |
-| `POST` | `/v1/responses` | OpenAI Responses API 互換エンドポイント |
+| `POST` | `/v1/responses` | OpenAI Responses API 互換エンドポイント (HTTP) |
+| `WS` | `/v1/responses` | OpenAI Responses API 互換エンドポイント (WebSocket) |
 
 ### `/v1/responses` について
 
@@ -166,6 +167,8 @@ OpenAI Responses API 形式でリクエストを受け取り、上流へは Chat
 - `instructions` がシステムプロンプトとして機能する
 - `stream: true` で SSE ストリーミングに対応。`response.created` → `response.output_text.delta` → `response.completed` 等の標準イベントを送出する
 - ツール呼び出し結果は `output` 配列内の `function_call` アイテムとして返される
+
+**WebSocket 対応:** Codex CLI など WebSocket トランスポートを使うクライアントにも対応している。`ws://host:port/v1/responses` に接続後、最初のメッセージとしてリクエスト JSON を送信すると、HTTP SSE と同じイベント列が WebSocket テキストフレームとして返される。
 
 ### サポートしているリクエストフィールド
 
@@ -235,6 +238,26 @@ pnpm start    # ビルド済みで起動
   ▼
 クライアントへ返却 (Anthropic 形式 / Responses API 形式 / SSE)
 ```
+
+## エージェントコーディングツールでの使用例
+```ps1
+ant2chat --provider openai -k $env:OPENAI_API_KEY --model gpt-5.4-mini
+```
+
+### Claude Code
+```ps1
+$env:ANTHROPIC_API_KEY="sk-ant-dummy"
+$env:ANTHROPIC_BASE_URL="http://localhost:3000";
+claude --model gpt-5.4-mini
+```
+
+### codex
+```ps1
+$env:OPENAI_API_KEY="sk-dummy"
+codex --model gpt-5.4-mini -c 'openai_base_url="http://localhost:3000/v1"'
+```
+
+※モデルオプションは任意です。ant2chat の `--model` オプションが優先されます。
 
 ## ライセンス
 
