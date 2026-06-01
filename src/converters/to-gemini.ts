@@ -8,10 +8,50 @@ const DISALLOWED_KEYWORDS = new Set([
   "patternProperties", "format", "additionalProperties", "default", "examples",
 ]);
 
+// type が省略されたスキーマから型を推論する。Gemini は全ノードで type が必須。
+function inferType(node: Record<string, unknown>): string {
+  if (node.properties || node.required) return "object";
+  if (node.items) return "array";
+  if (Array.isArray(node.enum) && node.enum.length > 0) {
+    const v = (node.enum as unknown[])[0];
+    if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
+    if (typeof v === "boolean") return "boolean";
+    return "string";
+  }
+  return "string";
+}
+
+// 型配列を Gemini の nullable 表現に変換する。
+//   ["string", "null"]  → { type: "string", nullable: true }
+//   ["string", "number"] → 先頭の非 null 型を採用 (Gemini は単一型のみサポート)
+function normalizeTypeArray(node: Record<string, unknown>): void {
+  if (!Array.isArray(node.type)) return;
+  const types = (node.type as unknown[]).filter((t): t is string => typeof t === "string");
+  if (types.includes("null")) node.nullable = true;
+  const nonNull = types.filter((t) => t !== "null");
+  if (nonNull.length > 0) {
+    node.type = nonNull[0];
+  } else {
+    delete node.type;
+  }
+}
+
 // required を properties に存在するキーのみに絞り、非対応キーワードを除去する
 function sanitizeSchema(node: Record<string, unknown>): Record<string, unknown> {
   const result = { ...node };
+  // additionalProperties が schema object (辞書/マップ型) の場合、Gemini は dict 型を
+  // 表現できないため、空 properties の object として近似する (キーワード削除前に判定)
+  const isDictSchema =
+    !result.properties &&
+    !!result.additionalProperties &&
+    typeof result.additionalProperties === "object" &&
+    !Array.isArray(result.additionalProperties);
+  if (isDictSchema) {
+    result.properties = {};
+    result.type = "object";
+  }
   for (const key of DISALLOWED_KEYWORDS) delete result[key];
+  normalizeTypeArray(result);
   if (result.properties && typeof result.properties === "object") {
     const props = result.properties as Record<string, unknown>;
     const out: Record<string, unknown> = {};
@@ -35,6 +75,10 @@ function sanitizeSchema(node: Record<string, unknown>): Record<string, unknown> 
     if (Array.isArray(result[key])) {
       result[key] = (result[key] as Record<string, unknown>[]).map(sanitizeSchema);
     }
+  }
+  // Gemini は全スキーマノードで type が必須なので、欠けている場合は推論して補完する
+  if (typeof result.type !== "string") {
+    result.type = inferType(result);
   }
   return result;
 }

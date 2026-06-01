@@ -112,15 +112,64 @@ export function toMessagesFromResponses(
   return result;
 }
 
-// OpenAI の strict スキーマ要件に合わせ、全 object に additionalProperties:false を付与し
-// required に全キーを補完する（再帰）
-function normalizeSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  if (schema.type === "array" && schema.items && typeof schema.items === "object") {
-    return { ...schema, items: normalizeSchema(schema.items as Record<string, unknown>) };
+// type が省略されたスキーマから型を推論する。strict モードでは全ノードで type が必須。
+function inferType(node: Record<string, unknown>): string {
+  if (node.properties || node.required || node.additionalProperties !== undefined) return "object";
+  if (node.items) return "array";
+  if (Array.isArray(node.enum) && node.enum.length > 0) {
+    const v = (node.enum as unknown[])[0];
+    if (typeof v === "number") return Number.isInteger(v) ? "integer" : "number";
+    if (typeof v === "boolean") return "boolean";
+    return "string";
   }
-  if (schema.type !== "object" && !schema.properties) return schema;
-  const props = (schema.properties ?? {}) as Record<string, unknown>;
-  const existing = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  return "string";
+}
+
+// 型配列の正規化。OpenAI strict は ["string", "null"] のような union を nullable 表現として
+// ネイティブにサポートするため、文字列以外を除去するだけにとどめる。
+// 全要素が "null" のみ / 空配列の場合は呼び出し側で推論にフォールバックする。
+function normalizeTypeArray(types: unknown[]): string | string[] | undefined {
+  const valid = types.filter((t): t is string => typeof t === "string");
+  const nonNull = valid.filter((t) => t !== "null");
+  if (nonNull.length === 0) return undefined;
+  const unique = Array.from(new Set(valid));
+  return unique.length === 1 ? unique[0] : unique;
+}
+
+// 解決済み type ("string" | string[] | undefined) を返す。
+function resolveType(schema: Record<string, unknown>): string | string[] {
+  if (typeof schema.type === "string") return schema.type;
+  if (Array.isArray(schema.type)) {
+    const normalized = normalizeTypeArray(schema.type as unknown[]);
+    if (normalized !== undefined) return normalized;
+  }
+  return inferType(schema);
+}
+
+// OpenAI の strict スキーマ要件に合わせ、全 object に additionalProperties:false を付与し
+// required に全キーを補完する（再帰）。type が欠けたノードには推論結果を補完する。
+function normalizeSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  // additionalProperties が schema object (辞書/マップ型) の場合、空 properties の object に変換する
+  // (strict モードは dict 型を表現できないため、近似として空オブジェクトを採用)
+  const isDictSchema =
+    !schema.properties &&
+    !!schema.additionalProperties &&
+    typeof schema.additionalProperties === "object" &&
+    !Array.isArray(schema.additionalProperties);
+  const base = isDictSchema
+    ? { ...schema, properties: {}, type: "object" as const, additionalProperties: false }
+    : schema;
+
+  const resolvedType = resolveType(base);
+  const isObject = resolvedType === "object" || (Array.isArray(resolvedType) && resolvedType.includes("object"));
+  const isArrayType = resolvedType === "array" || (Array.isArray(resolvedType) && resolvedType.includes("array"));
+
+  if (isArrayType && base.items && typeof base.items === "object" && !Array.isArray(base.items)) {
+    return { ...base, type: resolvedType, items: normalizeSchema(base.items as Record<string, unknown>) };
+  }
+  if (!isObject && !base.properties) return { ...base, type: resolvedType };
+  const props = (base.properties ?? {}) as Record<string, unknown>;
+  const existing = Array.isArray(base.required) ? (base.required as string[]) : [];
   const allKeys = Object.keys(props);
   const required = [...new Set([...existing, ...allKeys])];
   const normalizedProps: Record<string, unknown> = {};
@@ -129,7 +178,7 @@ function normalizeSchema(schema: Record<string, unknown>): Record<string, unknow
       ? normalizeSchema(v as Record<string, unknown>)
       : v;
   }
-  return { ...schema, properties: normalizedProps, required, additionalProperties: false };
+  return { ...base, type: resolvedType, properties: normalizedProps, required, additionalProperties: false };
 }
 
 export function toToolsFromResponses(tools: ResponseTool[] | undefined): ToolSet | undefined {
