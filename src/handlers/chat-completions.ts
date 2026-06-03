@@ -76,8 +76,22 @@ export async function handleChatCompletions(c: Context): Promise<Response> {
   return handleViaConversion(c, body, apiKey, model);
 }
 
+// OpenAI 系プロバイダー。新しいモデルは max_tokens を拒否し max_completion_tokens を要求する
+const OPENAI_FAMILY_PROVIDERS = new Set(["openai", "responses", "azure"]);
+
+// OpenAI 系の上流向けに max_tokens を max_completion_tokens へ正規化する。
+// パススルーは原則無加工だが、OpenAI の新しいモデルが max_tokens を拒否するための例外。
+function normalizeMaxTokensForOpenAI(body: ChatCompletionsRequest): void {
+  if (!OPENAI_FAMILY_PROVIDERS.has(config.providerName)) return;
+  if (body.max_tokens != null && body.max_completion_tokens == null) {
+    body.max_completion_tokens = body.max_tokens;
+    delete body.max_tokens;
+  }
+}
+
 // Chat Completions 互換の上流へリクエストをそのまま転送する
 async function handlePassthrough(body: ChatCompletionsRequest, apiKey: string): Promise<Response> {
+  normalizeMaxTokensForOpenAI(body);
   const url = `${config.baseURL.replace(/\/+$/, "")}/chat/completions`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {

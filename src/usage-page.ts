@@ -176,7 +176,7 @@ export const usagePage = `<!DOCTYPE html>
   <main>
     <header>
       <h1>ant2chat</h1>
-      <p>Anthropic Messages API (<code>/v1/messages</code>) および OpenAI Responses API (<code>/v1/responses</code>) を受け取り、<br>上流のプロバイダー (Chat Completions / Responses API / Google Gemini など) へ変換して転送するプロキシサーバー。</p>
+      <p>Anthropic Messages API (<code>/v1/messages</code>)、OpenAI Responses API (<code>/v1/responses</code>)、OpenAI Chat Completions API (<code>/v1/chat/completions</code>) を受け取り、<br>上流のプロバイダー (Chat Completions / Responses API / Google Gemini など) へ変換して転送するプロキシサーバー。</p>
     </header>
 
     <section>
@@ -196,9 +196,19 @@ export const usagePage = `<!DOCTYPE html>
             <td>このページを表示</td>
           </tr>
           <tr>
+            <td><span class="badge badge-get">GET</span></td>
+            <td><a href="/v1/messages"><code>/v1/messages</code></a></td>
+            <td>Messages API テストページ (ブラウザ) / <code>{"status":"ok"}</code> (API)</td>
+          </tr>
+          <tr>
             <td><span class="badge badge-post">POST</span></td>
             <td><code>/v1/messages</code></td>
             <td>Anthropic Messages API 互換エンドポイント</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-get">GET</span></td>
+            <td><a href="/v1/responses"><code>/v1/responses</code></a></td>
+            <td>Responses API テストページ (ブラウザ) / <code>{"status":"ok"}</code> (API)</td>
           </tr>
           <tr>
             <td><span class="badge badge-post">POST</span></td>
@@ -209,6 +219,16 @@ export const usagePage = `<!DOCTYPE html>
             <td><span class="badge badge-ws">WS</span></td>
             <td><code>/v1/responses</code></td>
             <td>OpenAI Responses API 互換エンドポイント (WebSocket)</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-get">GET</span></td>
+            <td><a href="/v1/chat/completions"><code>/v1/chat/completions</code></a></td>
+            <td>Chat Completions API テストページ (ブラウザ) / <code>{"status":"ok"}</code> (API)</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-post">POST</span></td>
+            <td><code>/v1/chat/completions</code></td>
+            <td>OpenAI Chat Completions API 互換エンドポイント (パススルー / Gemini 変換)</td>
           </tr>
         </tbody>
       </table>

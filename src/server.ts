@@ -5,6 +5,7 @@ import { handleChatCompletions } from "./handlers/chat-completions.js";
 import { usagePage } from "./usage-page.js";
 import { messagesTestPage } from "./messages-test-page.js";
 import { responsesTestPage } from "./responses-test-page.js";
+import { chatCompletionsTestPage } from "./chat-completions-test-page.js";
 
 // ANSI カラーコード
 const C = {
@@ -95,6 +96,15 @@ export function createApp() {
 
   // OpenAI Responses API エンドポイント
   app.post("/v1/responses", handleResponses);
+
+  // GET /v1/chat/completions → ブラウザにはテストページ
+  app.get("/v1/chat/completions", (c) => {
+    const accept = c.req.header("accept") ?? "";
+    if (accept.includes("text/html")) {
+      return c.html(chatCompletionsTestPage);
+    }
+    return c.json({ status: "ok" });
+  });
 
   // OpenAI Chat Completions API エンドポイント
   // Chat Completions 互換の上流へはパススルー、Gemini へは変換して転送する
