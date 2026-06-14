@@ -157,6 +157,19 @@ ANTHROPIC_BASE_URL=http://localhost:3000 claude
 | `WS` | `/v1/responses` | OpenAI Responses API 互換エンドポイント (WebSocket) |
 | `GET` | `/v1/chat/completions` | ブラウザからは Chat Completions API テストページ (HTML) を返す。API クライアントからは `{"status":"ok"}` を返す |
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions API 互換エンドポイント |
+| `GET` | `/logs` | 通信ログ閲覧ページ (HTML) を返す |
+| `GET` | `/logs/data` | 通信ログを JSON 配列で返す (閲覧ページが取得) |
+| `DELETE` | `/logs/data` | 通信ログをクリアする |
+
+### `/logs` について
+
+プロキシを通過したリクエストを記録し、ブラウザで `/logs` を開くと一覧で確認できる。
+
+- 一覧には日時・モデル・プロバイダー・入力トークン・出力トークン・速度 (tok/s) を表示する
+- 行をクリックすると、概要・送信したプロンプト (ロール別)・レスポンス本文・生 JSON を表示する
+- 「更新」「自動更新 (3秒)」「クリア」の操作に対応する
+- 全エンドポイント (`/v1/messages` / `/v1/responses` (HTTP・WebSocket) / `/v1/chat/completions`) が対象
+- ログはメモリ上に直近 200 件だけ保持し、永続化しない (再起動でクリアされる)
 
 ### `/v1/chat/completions` について
 
@@ -246,6 +259,7 @@ pnpm start    # ビルド済みで起動
 [Hono サーバー]
   │  リクエスト変換 → CoreMessage
   │  (/v1/chat/completions かつ互換上流の場合はパススルー)
+  │  通信ログを log-store に記録 (GET /logs で閲覧)
   ▼
 [Vercel AI SDK]  generateText / streamText
   │

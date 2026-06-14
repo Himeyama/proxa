@@ -10,6 +10,7 @@ import {
   chatToolChoiceToAnthropic,
 } from "../converters/from-chat-completions.js";
 import { googleSearchTool } from "../tools/google-search.js";
+import { startLog, finishLog, type LogEntry, type LogToolCall } from "../log-store.js";
 import {
   isGoogleProvider,
   getProvider,
@@ -70,10 +71,101 @@ export async function handleChatCompletions(c: Context): Promise<Response> {
   }
   console.log(highlightJson(JSON.stringify(summary, null, 2)));
 
+  const logEntry = startLog({
+    endpoint: "/v1/chat/completions",
+    provider: config.providerName,
+    model,
+    modelRequested: config.defaultModel && config.defaultModel !== requestedModel ? requestedModel : undefined,
+    stream: body.stream ?? false,
+    request: { messages: body.messages, tools: toolNames.length > 0 ? toolNames : undefined, tool_choice: body.tool_choice },
+  });
+
   if (passthrough) {
-    return handlePassthrough(body, apiKey);
+    return handlePassthrough(body, apiKey, logEntry);
   }
-  return handleViaConversion(c, body, apiKey, model);
+  return handleViaConversion(c, body, apiKey, model, logEntry);
+}
+
+// パススルー応答 (SSE) をバックグラウンドで読み取り、トークン数・本文をログへ記録する。
+async function consumePassthroughSSE(stream: ReadableStream<Uint8Array>, logEntry: LogEntry): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let text = "";
+  const toolAcc = new Map<number, { name: string; args: string }>();
+  let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        const payload = t.slice(5).trim();
+        if (payload === "" || payload === "[DONE]") continue;
+        let obj: Record<string, unknown>;
+        try { obj = JSON.parse(payload); } catch { continue; }
+        const u = obj.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+        if (u) usage = u;
+        const choice = (obj.choices as Array<Record<string, unknown>> | undefined)?.[0];
+        const delta = choice?.delta as { content?: string; tool_calls?: Array<Record<string, unknown>> } | undefined;
+        if (typeof delta?.content === "string") text += delta.content;
+        if (Array.isArray(delta?.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const idx = typeof tc.index === "number" ? tc.index : 0;
+            let entry = toolAcc.get(idx);
+            if (!entry) { entry = { name: "", args: "" }; toolAcc.set(idx, entry); }
+            const fn = tc.function as { name?: string; arguments?: string } | undefined;
+            if (fn?.name) entry.name = fn.name;
+            if (fn?.arguments) entry.args += fn.arguments;
+          }
+        }
+      }
+    }
+  } catch {
+    // ログ用途のため、ストリーム解析中のエラーは無視する
+  }
+  const toolCalls: LogToolCall[] = [...toolAcc.values()].filter((t) => t.name).map((t) => ({ name: t.name, arguments: t.args }));
+  finishLog(logEntry, {
+    inputTokens: usage?.prompt_tokens ?? 0,
+    outputTokens: usage?.completion_tokens ?? 0,
+    response: { text: text || undefined, toolCalls: toolCalls.length > 0 ? toolCalls : undefined },
+  });
+}
+
+// パススルー応答 (非ストリーム JSON) を解析してログへ記録する。
+function logPassthroughJson(text: string, ok: boolean, logEntry: LogEntry): void {
+  let parsed: Record<string, unknown> | undefined;
+  try { parsed = JSON.parse(text); } catch { parsed = undefined; }
+  if (!ok) {
+    const err = parsed?.error as { message?: string } | undefined;
+    finishLog(logEntry, { error: err?.message ?? text.slice(0, 500) });
+    return;
+  }
+  if (!parsed) {
+    finishLog(logEntry, {});
+    return;
+  }
+  const usage = parsed.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+  const choice = (parsed.choices as Array<Record<string, unknown>> | undefined)?.[0];
+  const msg = choice?.message as { content?: unknown; tool_calls?: Array<Record<string, unknown>> } | undefined;
+  const toolCalls: LogToolCall[] = Array.isArray(msg?.tool_calls)
+    ? msg!.tool_calls.map((tc) => {
+        const fn = tc.function as { name?: string; arguments?: string } | undefined;
+        return { name: fn?.name ?? "", arguments: fn?.arguments ?? "" };
+      })
+    : [];
+  finishLog(logEntry, {
+    inputTokens: usage?.prompt_tokens ?? 0,
+    outputTokens: usage?.completion_tokens ?? 0,
+    response: {
+      text: typeof msg?.content === "string" ? msg.content : undefined,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    },
+  });
 }
 
 // OpenAI 系プロバイダー。新しいモデルは max_tokens を拒否し max_completion_tokens を要求する
@@ -90,7 +182,7 @@ function normalizeMaxTokensForOpenAI(body: ChatCompletionsRequest): void {
 }
 
 // Chat Completions 互換の上流へリクエストをそのまま転送する
-async function handlePassthrough(body: ChatCompletionsRequest, apiKey: string): Promise<Response> {
+async function handlePassthrough(body: ChatCompletionsRequest, apiKey: string, logEntry: LogEntry): Promise<Response> {
   normalizeMaxTokensForOpenAI(body);
   const url = `${config.baseURL.replace(/\/+$/, "")}/chat/completions`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -104,8 +196,10 @@ async function handlePassthrough(body: ChatCompletionsRequest, apiKey: string): 
     upstream = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   } catch (err) {
     console.error("[chat passthrough] upstream fetch error:", err);
+    const message = `Upstream request failed: ${(err as Error).message}`;
+    finishLog(logEntry, { error: message });
     return new Response(
-      JSON.stringify({ error: { message: `Upstream request failed: ${(err as Error).message}`, type: "api_error" } }),
+      JSON.stringify({ error: { message, type: "api_error" } }),
       { status: 502, headers: { "Content-Type": "application/json" } }
     );
   }
@@ -113,12 +207,20 @@ async function handlePassthrough(body: ChatCompletionsRequest, apiKey: string): 
   const respHeaders = new Headers();
   const contentType = upstream.headers.get("content-type");
   if (contentType) respHeaders.set("Content-Type", contentType);
-  if (body.stream) {
+
+  // SSE ストリーム: tee で 1 本をクライアントへ返し、もう 1 本をログ用に読み取る
+  if (body.stream && upstream.body) {
     respHeaders.set("Cache-Control", "no-cache");
     respHeaders.set("Connection", "keep-alive");
+    const [toClient, toLog] = upstream.body.tee();
+    void consumePassthroughSSE(toLog, logEntry);
+    return new Response(toClient, { status: upstream.status, headers: respHeaders });
   }
-  // ボディ (JSON / SSE どちらも) をそのままストリームで返す
-  return new Response(upstream.body, { status: upstream.status, headers: respHeaders });
+
+  // 非ストリーム JSON: 本文をバッファしてログへ記録しつつ、そのままクライアントへ返す
+  const text = await upstream.text();
+  logPassthroughJson(text, upstream.ok, logEntry);
+  return new Response(text, { status: upstream.status, headers: respHeaders });
 }
 
 function buildConversionParams(body: ChatCompletionsRequest, apiKey: string, model: string) {
@@ -170,7 +272,8 @@ async function handleViaConversion(
   c: Context,
   body: ChatCompletionsRequest,
   apiKey: string,
-  model: string
+  model: string,
+  logEntry: LogEntry
 ): Promise<Response> {
   const { serverToolNames, commonParams } = buildConversionParams(body, apiKey, model);
   const id = makeId("chatcmpl-");
@@ -193,6 +296,8 @@ async function handleViaConversion(
 
         let roleSent = false;
         let sawToolCall = false;
+        let loggedText = "";
+        const loggedToolCalls: LogToolCall[] = [];
         const ensureRole = () => {
           if (roleSent) return;
           send(chunk([{ index: 0, delta: { role: "assistant" }, finish_reason: null }]));
@@ -224,6 +329,7 @@ async function handleViaConversion(
             switch (part.type) {
               case "text-delta": {
                 ensureRole();
+                loggedText += part.textDelta;
                 send(chunk([{ index: 0, delta: { content: part.textDelta }, finish_reason: null }]));
                 break;
               }
@@ -246,9 +352,11 @@ async function handleViaConversion(
                 ensureRole();
                 const entry = ensureToolStart(part.toolCallId, part.toolName);
                 if (!entry.argsEmitted) {
+                  const argsJson = JSON.stringify(stripEmptyStringValues(part.args));
+                  loggedToolCalls.push({ name: part.toolName, arguments: argsJson });
                   send(chunk([{
                     index: 0,
-                    delta: { tool_calls: [{ index: entry.index, function: { arguments: JSON.stringify(stripEmptyStringValues(part.args)) } }] },
+                    delta: { tool_calls: [{ index: entry.index, function: { arguments: argsJson } }] },
                     finish_reason: null,
                   }]));
                   entry.argsEmitted = true;
@@ -274,10 +382,17 @@ async function handleViaConversion(
             total_tokens: promptTokens + completionTokens,
           }));
           controller.enqueue(enc.encode("data: [DONE]\n\n"));
+
+          finishLog(logEntry, {
+            inputTokens: promptTokens,
+            outputTokens: completionTokens,
+            response: { text: loggedText || undefined, toolCalls: loggedToolCalls.length > 0 ? loggedToolCalls : undefined },
+          });
         } catch (err) {
           console.error("[chat stream] upstream error:", err);
           const { message } = extractUpstreamError(err);
           const enriched = config.defaultModel ? `[upstream model: ${model}] ${message}` : message;
+          finishLog(logEntry, { error: enriched });
           controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: { message: enriched, type: "api_error" } })}\n\n`));
         } finally {
           controller.close();
@@ -328,11 +443,21 @@ async function handleViaConversion(
       },
     };
 
+    finishLog(logEntry, {
+      inputTokens: result.usage.promptTokens,
+      outputTokens: result.usage.completionTokens,
+      response: {
+        text: result.text || undefined,
+        toolCalls: ccToolCalls.length > 0 ? ccToolCalls.map((tc) => ({ name: tc.function.name, arguments: tc.function.arguments })) : undefined,
+      },
+    });
+
     return c.json(response);
   } catch (err) {
     console.error("[chat non-stream] upstream error:", err);
     const { message, statusCode } = extractUpstreamError(err);
     const enriched = config.defaultModel ? `[upstream model: ${model}] ${message}` : message;
+    finishLog(logEntry, { error: enriched });
     return c.json(
       { error: { message: enriched, type: "api_error" } },
       statusCode as 400 | 401 | 403 | 404 | 429 | 500 | 502

@@ -7,6 +7,7 @@ import { filterSystemForNonClaudeModel, toMessages, toToolChoice } from "../conv
 import { toChatCompletionsTools } from "../converters/to-chat-completions.js";
 import { toGeminiTools } from "../converters/to-gemini.js";
 import { googleSearchTool } from "../tools/google-search.js";
+import { startLog, finishLog, type LogToolCall } from "../log-store.js";
 import {
   isGoogleProvider,
   isResponsesProvider,
@@ -110,6 +111,16 @@ export async function handleMessages(c: Context): Promise<Response> {
     summary["model_requested"] = body.model;
   }
   console.log(highlightJson(JSON.stringify(summary, null, 2)));
+
+  const logEntry = startLog({
+    endpoint: "/v1/messages",
+    provider: config.providerName,
+    model,
+    modelRequested: config.defaultModel && config.defaultModel !== body.model ? body.model : undefined,
+    stream: body.stream ?? false,
+    request: { system: body.system, messages: body.messages, tools: toolNames.length > 0 ? toolNames : undefined, tool_choice: body.tool_choice },
+  });
+
   const system = body.system != null && !model.toLowerCase().includes("claude")
     ? filterSystemForNonClaudeModel(body.system, model)
     : body.system;
@@ -178,6 +189,8 @@ export async function handleMessages(c: Context): Promise<Response> {
         const toolBlocks = new Map<string, { index: number; argsEmitted: boolean }>();
         const openBlocks = new Set<number>();
         let sawToolCall = false;
+        let loggedText = "";
+        const loggedToolCalls: LogToolCall[] = [];
 
         const openTextBlock = () => {
           if (textBlockIndex !== null) return;
@@ -236,6 +249,7 @@ export async function handleMessages(c: Context): Promise<Response> {
               }
               case "text-delta": {
                 openTextBlock();
+                loggedText += part.textDelta;
                 enqueue({
                   type: "content_block_delta",
                   index: textBlockIndex!,
@@ -312,12 +326,14 @@ export async function handleMessages(c: Context): Promise<Response> {
                   });
                 }
                 if (!entry.argsEmitted) {
+                  const argsJson = JSON.stringify(stripEmptyStringValues(part.args));
+                  loggedToolCalls.push({ name: part.toolName, arguments: argsJson });
                   enqueue({
                     type: "content_block_delta",
                     index: entry.index,
                     delta: {
                       type: "input_json_delta",
-                      partial_json: JSON.stringify(stripEmptyStringValues(part.args)),
+                      partial_json: argsJson,
                     },
                   });
                   entry.argsEmitted = true;
@@ -344,10 +360,17 @@ export async function handleMessages(c: Context): Promise<Response> {
 
           enqueue({ type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: outputTokens } });
           enqueue({ type: "message_stop" });
+
+          finishLog(logEntry, {
+            inputTokens: usage?.promptTokens ?? 0,
+            outputTokens,
+            response: { text: loggedText || undefined, toolCalls: loggedToolCalls.length > 0 ? loggedToolCalls : undefined, stopReason },
+          });
         } catch (err) {
           console.error("[stream] upstream error:", err);
           const { type, message } = extractUpstreamError(err);
           const enriched = config.defaultModel ? `[upstream model: ${model}] ${message}` : message;
+          finishLog(logEntry, { error: enriched });
           controller.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify({ type: "error", error: { type, message: enriched } })}\n\n`));
         } finally {
           controller.close();
@@ -420,11 +443,22 @@ export async function handleMessages(c: Context): Promise<Response> {
       },
     };
 
+    finishLog(logEntry, {
+      inputTokens: result.usage.promptTokens,
+      outputTokens: result.usage.completionTokens,
+      response: {
+        text: result.text || undefined,
+        toolCalls: toolCalls.length > 0 ? toolCalls.map((c) => ({ name: c.toolName, arguments: JSON.stringify(stripEmptyStringValues(c.args)) })) : undefined,
+        stopReason,
+      },
+    });
+
     return c.json(response);
   } catch (err) {
     console.error("[non-stream] upstream error:", err);
     const { type, message, statusCode } = extractUpstreamError(err);
     const enriched = config.defaultModel ? `[upstream model: ${model}] ${message}` : message;
+    finishLog(logEntry, { error: enriched });
     return c.json({ type: "error", error: { type, message: enriched } }, statusCode as 400 | 401 | 403 | 404 | 429 | 500 | 502);
   }
 }

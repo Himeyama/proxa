@@ -5,6 +5,7 @@ import { highlightJson } from "../server.js";
 import { filterSystemForNonClaudeModel } from "../converters/shared.js";
 import { toMessagesFromResponses, toToolsFromResponses, toToolChoiceFromResponses } from "../converters/from-responses.js";
 import { googleSearchTool } from "../tools/google-search.js";
+import { startLog, finishLog, type LogEntry } from "../log-store.js";
 import {
   getProvider,
   resolveModel,
@@ -98,6 +99,7 @@ export function buildResponsesParams(body: ResponsesRequest, apiKey: string): Re
 export async function emitStreamingLoop(
   { model, commonParams, serverToolNames, respId, createdAt }: ResponsesParams,
   emit: (event: ResponsesStreamEvent) => void,
+  logEntry?: LogEntry,
 ): Promise<void> {
   emit({
     type: "response.created",
@@ -249,6 +251,15 @@ export async function emitStreamingLoop(
   const inputTokens = usage?.promptTokens || 0;
   const outputTokens = usage?.completionTokens || 0;
 
+  if (logEntry) {
+    const toolCalls = sortedTools.map((t) => ({ name: t.name, arguments: t.finalArgs ?? t.argsText }));
+    finishLog(logEntry, {
+      inputTokens,
+      outputTokens,
+      response: { text: textAccumulated || undefined, toolCalls: toolCalls.length > 0 ? toolCalls : undefined },
+    });
+  }
+
   emit({
     type: "response.completed",
     response: {
@@ -298,6 +309,15 @@ export async function handleResponses(c: Context): Promise<Response> {
   }
   console.log(highlightJson(JSON.stringify(summary, null, 2)));
 
+  const logEntry = startLog({
+    endpoint: "/v1/responses",
+    provider: config.providerName,
+    model,
+    modelRequested: config.defaultModel && config.defaultModel !== body.model ? body.model : undefined,
+    stream: body.stream ?? false,
+    request: { instructions: body.instructions, input: body.input, tools: toolNames.length > 0 ? toolNames : undefined, tool_choice: body.tool_choice },
+  });
+
   // ストリーミング
   if (body.stream) {
     const stream = new ReadableStream({
@@ -306,11 +326,12 @@ export async function handleResponses(c: Context): Promise<Response> {
         const emit = (event: ResponsesStreamEvent) =>
           controller.enqueue(enc.encode(sseEvent(event)));
         try {
-          await emitStreamingLoop(params, emit);
+          await emitStreamingLoop(params, emit, logEntry);
         } catch (err) {
           console.error("[stream] upstream error:", err);
           const { message } = extractUpstreamError(err);
           const enriched = config.defaultModel ? `[upstream model: ${model}] ${message}` : message;
+          finishLog(logEntry, { error: enriched });
           controller.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify({ type: "error", code: "server_error", message: enriched })}\n\n`));
         } finally {
           controller.close();
@@ -371,11 +392,21 @@ export async function handleResponses(c: Context): Promise<Response> {
       incomplete_details: finishReason === "length" ? { reason: "max_tokens" } : null,
     };
 
+    finishLog(logEntry, {
+      inputTokens: result.usage.promptTokens,
+      outputTokens: result.usage.completionTokens,
+      response: {
+        text: result.text || undefined,
+        toolCalls: toolCalls.length > 0 ? toolCalls.map((call) => ({ name: call.toolName, arguments: JSON.stringify(stripEmptyStringValues(call.args)) })) : undefined,
+      },
+    });
+
     return c.json(response);
   } catch (err) {
     console.error("[non-stream] upstream error:", err);
     const { message, statusCode } = extractUpstreamError(err);
     const enriched = config.defaultModel ? `[upstream model: ${model}] ${message}` : message;
+    finishLog(logEntry, { error: enriched });
     return c.json({ error: { code: "server_error", message: enriched } }, statusCode as 400 | 401 | 403 | 404 | 429 | 500 | 502);
   }
 }

@@ -6,6 +6,8 @@ import { usagePage } from "./usage-page.js";
 import { messagesTestPage } from "./messages-test-page.js";
 import { responsesTestPage } from "./responses-test-page.js";
 import { chatCompletionsTestPage } from "./chat-completions-test-page.js";
+import { logsPage } from "./logs-page.js";
+import { getLogs, clearLogs } from "./log-store.js";
 
 // ANSI カラーコード
 const C = {
@@ -109,6 +111,18 @@ export function createApp() {
   // OpenAI Chat Completions API エンドポイント
   // Chat Completions 互換の上流へはパススルー、Gemini へは変換して転送する
   app.post("/v1/chat/completions", handleChatCompletions);
+
+  // GET /logs → 通信ログ閲覧ページ (HTML)
+  app.get("/logs", (c) => c.html(logsPage));
+
+  // GET /logs/data → 通信ログを JSON で返す (閲覧ページが取得)
+  app.get("/logs/data", (c) => c.json(getLogs()));
+
+  // DELETE /logs/data → 通信ログをクリア
+  app.delete("/logs/data", (c) => {
+    clearLogs();
+    return c.json({ status: "ok" });
+  });
 
   // 未定義ルート
   app.notFound((c) => c.json({ type: "error", error: { type: "not_found_error", message: "Not found" } }, 404));
