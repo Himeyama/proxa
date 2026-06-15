@@ -19,6 +19,7 @@ const { values } = parseArgs({
     model:       { type: "string",  short: "m" },
     global:      { type: "boolean", short: "g" },
     "no-search": { type: "boolean" },
+    "gemini-relay-url": { type: "string" },
     help:        { type: "boolean", short: "h" },
   },
   strict: false,
@@ -36,10 +37,14 @@ Options:
   -u, --url <url>         Upstream base URL. Provider is auto-detected from the URL when --provider is omitted
   -p, --port <port>       Listen port (default: 3000)
   -k, --api-key <key>     Upstream API key
-      --auth-type <type>  Auth header type: bearer | api-key (default: bearer)
+      --auth-type <type>  Auth header type: bearer | api-key | x-goog-api-key
+                          (default: bearer; google/gemini: x-goog-api-key, azure: api-key)
   -m, --model <model>     Force model name (overrides client's model field)
   -g, --global            Listen on 0.0.0.0 (expose to network)
       --no-search         Disable built-in web search tool
+      --gemini-relay-url <url>  For --provider google/gemini: POST every Gemini request verbatim to this exact URL
+                                instead of letting the SDK build {baseURL}/models/{model}:generateContent
+                                (the ?alt=sse query is preserved for streaming)
   -h, --help              Show this help
 
 Environment variables (overridden by CLI options):
@@ -53,6 +58,7 @@ Environment variables (overridden by CLI options):
   CHAT_AUTH_TYPE                 Auth header type
   CHAT_DEFAULT_MODEL             Default model name
   NO_SEARCH                      Disable built-in web search tool (set to "1" or "true")
+  GEMINI_RELAY_URL               For --provider google/gemini: POST every Gemini request verbatim to this exact URL
 `);
   process.exit(0);
 }
@@ -92,7 +98,14 @@ function resolveBaseURL(provider: string): string {
   return PROVIDER_URLS[provider]; // ollama デフォルト
 }
 
-export type AuthType = "bearer" | "api-key";
+export type AuthType = "bearer" | "api-key" | "x-goog-api-key";
+
+// --auth-type / CHAT_AUTH_TYPE が未指定のときのプロバイダー別デフォルト認証ヘッダー形式
+function defaultAuthType(provider: string): AuthType {
+  if (provider === "azure") return "api-key";
+  if (provider === "google" || provider === "gemini") return "x-goog-api-key";
+  return "bearer";
+}
 
 function resolveApiKey(provider: string): string {
   if (values["api-key"] != null) return String(values["api-key"]);
@@ -140,6 +153,12 @@ try {
 
 const noSearchEnv = process.env.NO_SEARCH === "1" || process.env.NO_SEARCH === "true";
 
+// Gemini 専用: 設定された場合、SDK が組み立てる URL を無視してこの URL へ verbatim 転送する
+const geminiRelayURL =
+  values["gemini-relay-url"] != null
+    ? String(values["gemini-relay-url"])
+    : (process.env.GEMINI_RELAY_URL || undefined);
+
 export const config = {
   providerName,
   baseURL:       resolvedBaseURL,
@@ -147,7 +166,8 @@ export const config = {
   port:          Number(values.port        ?? process.env.PORT               ?? 3000),
   global:        Boolean(values.global),
   apiKey:        resolveApiKey(providerName),
-  authType:      (values["auth-type"] != null ? String(values["auth-type"]) : (process.env.CHAT_AUTH_TYPE ?? (providerName === "azure" ? "api-key" : "bearer"))) as AuthType,
+  authType:      (values["auth-type"] != null ? String(values["auth-type"]) : (process.env.CHAT_AUTH_TYPE ?? defaultAuthType(providerName))) as AuthType,
   defaultModel:  values.model != null ? String(values.model) : (process.env.CHAT_DEFAULT_MODEL ?? geminiParsed?.model ?? ""),
   noSearch:      Boolean(values["no-search"]) || noSearchEnv,
+  geminiRelayURL,
 };

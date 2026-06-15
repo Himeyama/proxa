@@ -64,10 +64,11 @@ Options:
   -u, --url <url>         上流ベース URL。--provider 省略時は URL からプロバイダーを自動判定
   -p, --port <port>       Listen ポート (デフォルト: 3000)
   -k, --api-key <key>     上流 API キー
-      --auth-type <type>  認証ヘッダー形式: bearer | api-key (デフォルト: bearer)
+      --auth-type <type>  認証ヘッダー形式: bearer | api-key | x-goog-api-key (デフォルト: bearer / google・gemini は x-goog-api-key / azure は api-key)
   -m, --model <model>     モデル名を強制指定 (クライアントの model フィールドを上書き)
   -g, --global            0.0.0.0 でリッスン (ネットワークに公開)
       --no-search         組み込み Web 検索ツールを無効化
+      --gemini-relay-url <url>  google/gemini 限定。SDK に URL を組み立てさせず、全 Gemini リクエストをこの URL へそのまま転送する
   -h, --help              ヘルプを表示
 ```
 
@@ -86,9 +87,10 @@ CLI オプションで上書き可能。
 | `OPENROUTER_API_KEY` | `--provider openrouter` 使用時の API キーフォールバック |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | `--provider google` / `--provider gemini` 使用時の API キーフォールバック |
 | `AZURE_OPENAI_API_KEY` | `--provider azure` 使用時の API キーフォールバック |
-| `CHAT_AUTH_TYPE` | 認証ヘッダー形式 |
+| `CHAT_AUTH_TYPE` | 認証ヘッダー形式: bearer \| api-key \| x-goog-api-key |
 | `PORT` | Listen ポート。デフォルト: `3000` |
 | `NO_SEARCH` | `1` または `true` で組み込み Web 検索ツールを無効化 |
+| `GEMINI_RELAY_URL` | `--gemini-relay-url` のフォールバック。`--provider google` / `gemini` 限定の中継先 URL |
 
 ### 設定方法
 
@@ -237,6 +239,24 @@ OpenAI Responses API 形式でリクエストを受け取り、上流へは Chat
 
 `--provider google` / `--provider gemini` 使用時、マルチターン会話で過去の `tool_use` / `tool_result` をテキスト形式に変換する。Gemini 思考モデルはツール呼び出し履歴に `thought_signature` を要求するが、Anthropic フォーマットにその概念がないため署名が失われる。テキスト形式で代替することで `INVALID_ARGUMENT (400)` エラーを回避する。
 
+### Gemini: 認証ヘッダー
+
+google / gemini の認証ヘッダーは **デフォルトで `x-goog-api-key`** を使う。`--auth-type`（環境変数 `CHAT_AUTH_TYPE`）で切り替えられ、API キー（`-k` / `CHAT_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`）が選択したヘッダーに入る。
+
+| `--auth-type` | 送出されるヘッダー |
+|---|---|
+| 未指定 / `x-goog-api-key` | `x-goog-api-key: <key>` |
+| `bearer` | `Authorization: Bearer <key>` |
+| `api-key` | `api-key: <key>` |
+
+```bash
+# 既定: x-goog-api-key
+ant2chat --provider gemini -k AIzaSy-xxx
+
+# 中継ゲートウェイが Bearer 認証を要求する場合など
+ant2chat --provider gemini --gemini-relay-url https://gw.example.com/v1/endpoint --auth-type bearer -k MY-TOKEN
+```
+
 ### Gemini: モデル付き URL の直接指定
 
 `-u` に `models/{model}:generateContent` 形式の URL を渡すと、ベース URL とモデル名を自動分解する。`-m` や `CHAT_DEFAULT_MODEL` が未指定の場合は URL 内のモデル名をそのまま使用する。
@@ -244,6 +264,21 @@ OpenAI Responses API 形式でリクエストを受け取り、上流へは Chat
 ```bash
 ant2chat -u https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent -k AIzaSy-xxx
 ```
+
+### Gemini: 任意 URL への中継 (`--gemini-relay-url`)
+
+`@ai-sdk/google` は baseURL から必ず `{baseURL}/models/{model}:generateContent` (ストリーム時は `:streamGenerateContent?alt=sse`) を組み立てるため、この形に当てはまらない任意のエンドポイントへは送れない。`--gemini-relay-url <url>` (または環境変数 `GEMINI_RELAY_URL`) を指定すると、SDK が組み立てた URL を破棄し、**設定した URL へそのまま転送** する。
+
+```bash
+# 例: SDK の URL 組み立てを無視して、この URL へ verbatim 転送する
+ant2chat --provider gemini --gemini-relay-url https://example.com/v1/baseurl/endpoint -k AIzaSy-xxx
+```
+
+- 別ポートのサーバーは立てず、プロセス内の fetch インターセプターとして中継する (`クライアント → ant2chat → gemini SDK → 中継 → 設定 URL`)
+- ストリーミング判定の `?alt=sse` は転送先 URL にも引き継がれる (非ストリーム → `<url>`、ストリーム → `<url>?alt=sse`)
+- 転送先がモデルを決める前提のため、モデル名は URL パスに乗らない。`-u` / `customBaseURL` は relay 時には使われない
+- 転送先が Google 認証を要求しない場合は API キー未指定でも動作する (内部でプレースホルダを補う)。要求する場合は通常どおり `-k` / `CHAT_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` でキーを渡す
+- `/v1/messages` と `/v1/chat/completions` (Gemini 変換パス) の双方に効く
 
 ## 開発
 

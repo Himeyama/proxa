@@ -11,10 +11,52 @@ export function isResponsesProvider(providerName: string): boolean {
   return providerName === "responses";
 }
 
+// Gemini 用の中継 fetch。SDK が組み立てた {baseURL}/models/{model}:generateContent を無視し、
+// 設定された relayURL へ verbatim 転送する (ストリーミング判定の ?alt=sse などクエリは引き継ぐ)。
+// フロー: gemini SDK → この fetch (中継) → relayURL
+function makeGeminiRelayFetch(relayURL: string): typeof globalThis.fetch {
+  const relayFetch: typeof globalThis.fetch = (input, init) => {
+    const originalURL =
+      typeof input === "string" ? input
+      : input instanceof URL ? input.toString()
+      : input.url;
+    const target = new URL(relayURL);
+    const qIndex = originalURL.indexOf("?");
+    if (qIndex !== -1) {
+      new URLSearchParams(originalURL.slice(qIndex + 1)).forEach((value, key) => {
+        target.searchParams.set(key, value);
+      });
+    }
+    if (typeof input === "string" || input instanceof URL) {
+      return globalThis.fetch(target.toString(), init);
+    }
+    // Request オブジェクトの場合は URL を差し替えて再構築する
+    return globalThis.fetch(new Request(target.toString(), input), init);
+  };
+  return relayFetch;
+}
+
 export function getProvider(apiKey: string) {
-  const { baseURL, customBaseURL, authType, providerName } = config;
+  const { baseURL, customBaseURL, authType, providerName, geminiRelayURL } = config;
   if (isGoogleProvider(providerName)) {
-    return createGoogleGenerativeAI({ apiKey, ...(customBaseURL ? { baseURL: customBaseURL } : {}) });
+    // relay 時は SDK の URL 組み立てを fetch で上書きするため baseURL は無視する。
+    const urlOpts = geminiRelayURL
+      ? { fetch: makeGeminiRelayFetch(geminiRelayURL) }
+      : (customBaseURL ? { baseURL: customBaseURL } : {});
+    // 認証ヘッダー: 既定は SDK ネイティブの x-goog-api-key。--auth-type で上書き可能。
+    if (authType === "bearer" || authType === "api-key") {
+      // SDK が必ず付ける x-goog-api-key を undefined で抑制し (fetch 直前に removeUndefinedEntries で除去される)、
+      // 選択したヘッダーに -k の値を載せる。apiKey は loadApiKey が落ちないよう string であれば何でもよい (値はヘッダー抑制で破棄)。
+      const overrideHeader =
+        authType === "bearer" ? { Authorization: `Bearer ${apiKey}` } : { "api-key": apiKey };
+      return createGoogleGenerativeAI({
+        apiKey: apiKey || "x-goog",
+        headers: { "x-goog-api-key": undefined, ...overrideHeader },
+        ...urlOpts,
+      });
+    }
+    // 既定 (x-goog-api-key)。relay 時に中継先が Google 認証を要求しないケースでもキー欠如で SDK が落ちないようプレースホルダを補う。
+    return createGoogleGenerativeAI({ apiKey: geminiRelayURL ? (apiKey || "relay") : apiKey, ...urlOpts });
   }
   if (authType === "api-key") {
     return createOpenAI({
