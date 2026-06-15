@@ -1,11 +1,13 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { handleMessages } from "./handlers/messages.js";
 import { handleResponses } from "./handlers/responses.js";
 import { handleChatCompletions } from "./handlers/chat-completions.js";
+import { handleGenerateContent } from "./handlers/gemini.js";
 import { usagePage } from "./usage-page.js";
 import { messagesTestPage } from "./messages-test-page.js";
 import { responsesTestPage } from "./responses-test-page.js";
 import { chatCompletionsTestPage } from "./chat-completions-test-page.js";
+import { geminiTestPage } from "./gemini-test-page.js";
 import { logsPage } from "./logs-page.js";
 import { getLogs, clearLogs } from "./log-store.js";
 
@@ -111,6 +113,21 @@ export function createApp() {
   // OpenAI Chat Completions API エンドポイント
   // Chat Completions 互換の上流へはパススルー、Gemini へは変換して転送する
   app.post("/v1/chat/completions", handleChatCompletions);
+
+  // Google Gemini API 互換エンドポイント (/v1beta/models/{model}:generateContent 形式)。
+  // クライアントから Gemini 形式を受け取り、上流 (Chat Completions / Gemini) へ変換して転送する。
+  // GET → ブラウザにはテストページ、API クライアントには {"status":"ok"}
+  const geminiGetHandler = (c: Context) => {
+    const accept = c.req.header("accept") ?? "";
+    if (accept.includes("text/html")) {
+      return c.html(geminiTestPage);
+    }
+    return c.json({ status: "ok" });
+  };
+  app.get("/v1beta/models/:modelAction", geminiGetHandler);
+  app.get("/v1/models/:modelAction", geminiGetHandler);
+  app.post("/v1beta/models/:modelAction", handleGenerateContent);
+  app.post("/v1/models/:modelAction", handleGenerateContent);
 
   // GET /logs → 通信ログ閲覧ページ (HTML)
   app.get("/logs", (c) => c.html(logsPage));

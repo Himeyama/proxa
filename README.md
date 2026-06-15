@@ -1,8 +1,8 @@
 # ant2chat
 
-Anthropic Messages API (`/v1/messages`)、OpenAI Responses API (`/v1/responses`)、OpenAI Chat Completions API (`/v1/chat/completions`) を受け取り、上流の Chat Completions API / Google Gemini API へ変換して転送するプロキシサーバー。
+Anthropic Messages API (`/v1/messages`)、OpenAI Responses API (`/v1/responses`)、OpenAI Chat Completions API (`/v1/chat/completions`)、Google Gemini API (`/v1beta/models/{model}:generateContent`) を受け取り、上流の Chat Completions API / Google Gemini API へ変換して転送するプロキシサーバー。
 
-Claude Code などの Anthropic クライアント、OpenAI Responses API クライアント、OpenAI Chat Completions クライアントを、Ollama・LM Studio・vLLM などの OpenAI 互換バックエンドや Google Gemini に接続できる。
+Claude Code などの Anthropic クライアント、OpenAI Responses API クライアント、OpenAI Chat Completions クライアント、Google Gemini クライアントを、Ollama・LM Studio・vLLM などの OpenAI 互換バックエンドや Google Gemini に接続できる。
 
 ## インストール
 
@@ -160,6 +160,9 @@ ANTHROPIC_BASE_URL=http://localhost:3000 claude
 | `WS` | `/v1/responses` | OpenAI Responses API 互換エンドポイント (WebSocket) |
 | `GET` | `/v1/chat/completions` | ブラウザからは Chat Completions API テストページ (HTML) を返す。API クライアントからは `{"status":"ok"}` を返す |
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions API 互換エンドポイント |
+| `GET` | `/v1beta/models/{model}:…` (`/v1` も可) | ブラウザからは Gemini API テストページ (HTML) を返す。API クライアントからは `{"status":"ok"}` を返す |
+| `POST` | `/v1beta/models/{model}:generateContent` (`/v1` も可) | Google Gemini API 互換エンドポイント (非ストリーム) |
+| `POST` | `/v1beta/models/{model}:streamGenerateContent` (`/v1` も可) | Google Gemini API 互換エンドポイント (ストリーミング、SSE) |
 | `GET` | `/logs` | 通信ログ閲覧ページ (HTML) を返す |
 | `GET` | `/logs/data` | 通信ログを JSON 配列で返す (閲覧ページが取得) |
 | `DELETE` | `/logs/data` | 通信ログをクリアする |
@@ -170,6 +173,7 @@ ant2chat 自身は受信リクエストを認証しない。上流へ渡す API 
 
 - `/v1/messages`（Anthropic）: `x-api-key` を優先し、`Authorization: Bearer`（`ANTHROPIC_AUTH_TOKEN` 方式）にもフォールバック
 - `/v1/responses` / `/v1/chat/completions`（OpenAI）: `Authorization: Bearer` を優先し、`x-api-key` にもフォールバック
+- `/v1beta/models/...`（Gemini）: `x-goog-api-key` を優先し、`Authorization: Bearer` → `x-api-key` → `?key=` クエリにもフォールバック
 
 取り出したキーは上流の認証ヘッダー（OpenAI 系は `--auth-type`、Gemini は「Gemini: 認証ヘッダー」参照）に載る。
 
@@ -185,7 +189,7 @@ ant2chat 自身は受信リクエストを認証しない。上流へ渡す API 
 - 一覧が横に長いときはテーブルを横スクロールできる
 - 行をクリックすると、概要・送信したプロンプト (ロール別)・レスポンス本文・生 JSON を表示する
 - 「更新」「自動更新 (3秒)」「料金表」「クリア」の操作に対応する
-- 全エンドポイント (`/v1/messages` / `/v1/responses` (HTTP・WebSocket) / `/v1/chat/completions`) が対象
+- 全エンドポイント (`/v1/messages` / `/v1/responses` (HTTP・WebSocket) / `/v1/chat/completions` / `/v1beta/models/{model}:generateContent`) が対象
 - ログはメモリ上に直近 200 件だけ保持し、永続化しない (再起動でクリアされる)。料金表の設定はブラウザの `localStorage` に保存される
 
 ### `/v1/chat/completions` について
@@ -214,6 +218,29 @@ OpenAI Responses API 形式でリクエストを受け取り、上流へは Chat
 - ツール呼び出し結果は `output` 配列内の `function_call` アイテムとして返される
 
 **WebSocket 対応:** Codex CLI など WebSocket トランスポートを使うクライアントにも対応している。`ws://host:port/v1/responses` に接続後、最初のメッセージとしてリクエスト JSON を送信すると、HTTP SSE と同じイベント列が WebSocket テキストフレームとして返される。
+
+### `/v1beta/models/{model}:generateContent` について
+
+Google Gemini API 形式でリクエストを受け取り (`generateContent` / `streamGenerateContent`)、上流へは各プロバイダーの形式へ変換して転送し、Gemini 形式でレスポンスを返す。Gemini クライアント (公式 SDK や `curl`) を、Ollama などの OpenAI 互換バックエンドや任意の上流へ接続できる。**上流プロバイダーは何でもよい** (`/v1/messages` と同じく全プロバイダー対応)。
+
+- パスは `/v1beta/models/{model}:generateContent` (非ストリーム) と `/v1beta/models/{model}:streamGenerateContent` (ストリーミング、SSE)。`/v1` 版も受け付ける
+- モデル名は URL パスから取り出す (`--model` / `CHAT_DEFAULT_MODEL` 指定時はそれが優先)
+- `contents` / `systemInstruction` / `tools` (`functionDeclarations`) / `toolConfig` / `generationConfig` (`temperature` / `topP` / `maxOutputTokens` / `stopSequences` / `thinkingConfig`) を解釈する。camelCase と snake_case の両方を受け付ける
+- 画像 (`inlineData` / `fileData`)・関数呼び出し (`functionCall` / `functionResponse`)・思考 (`thinkingConfig.includeThoughts`) に対応。組み込み Web 検索ツールも利用できる
+- レスポンスは `candidates[0].content.parts[]` + `usageMetadata` + `modelVersion` 形式。エラーは Gemini 形式 (`{ error: { code, message, status } }`)
+
+```bash
+# 例: 上流 Ollama に対して Gemini 形式で問い合わせる
+ant2chat -u http://localhost:11434/v1 -m llama3.2
+curl http://localhost:3000/v1beta/models/llama3.2:generateContent \
+  -H 'Content-Type: application/json' \
+  -d '{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}'
+
+# ストリーミング (SSE)
+curl -N 'http://localhost:3000/v1beta/models/llama3.2:streamGenerateContent?alt=sse' \
+  -H 'Content-Type: application/json' \
+  -d '{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}'
+```
 
 ### サポートしているリクエストフィールド
 
@@ -302,10 +329,11 @@ pnpm start    # ビルド済みで起動
 
 ```
 クライアント
-  │  POST /v1/messages          (Anthropic 形式)
-  │  POST /v1/responses         (HTTP)
-  │  WS   /v1/responses         (WebSocket)
-  │  POST /v1/chat/completions  (OpenAI Chat Completions 形式)
+  │  POST /v1/messages                          (Anthropic 形式)
+  │  POST /v1/responses                         (HTTP)
+  │  WS   /v1/responses                         (WebSocket)
+  │  POST /v1/chat/completions                  (OpenAI Chat Completions 形式)
+  │  POST /v1beta/models/{model}:generateContent (Google Gemini 形式)
   ▼
 [Hono サーバー]  src/server.ts
   │  各ハンドラーが startLog / finishLog で通信ログを記録 (src/log-store.ts)
@@ -323,11 +351,17 @@ pnpm start    # ビルド済みで起動
   │    ▼
   │  [toMessagesFromResponses / toToolsFromResponses]  src/converters/from-responses.ts
   │
-  └─ handleChatCompletions  src/handlers/chat-completions.ts
-       │  ・Chat Completions 互換の上流 → そのままパススルー (fetch で生転送)
-       │  ・Gemini → 変換 (CC → Anthropic → CoreMessage、出力を CC 形式に再構築)
+  ├─ handleChatCompletions  src/handlers/chat-completions.ts
+  │    │  ・Chat Completions 互換の上流 → そのままパススルー (fetch で生転送)
+  │    │  ・Gemini → 変換 (CC → Anthropic → CoreMessage、出力を CC 形式に再構築)
+  │    ▼
+  │  [chatMessagesToAnthropic / chatToolsToAnthropic]  src/converters/from-chat-completions.ts
+  │
+  └─ handleGenerateContent  src/handlers/gemini.ts
+       │  リクエスト変換 (Gemini → Anthropic → CoreMessage、出力を Gemini 形式に再構築)
+       │  上流は全プロバイダー対応
        ▼
-     [chatMessagesToAnthropic / chatToolsToAnthropic]  src/converters/from-chat-completions.ts
+     [geminiContentsToAnthropic / geminiToolsToAnthropic]  src/converters/from-gemini.ts
   │
   │  共通プロバイダー  src/handlers/provider.ts
   │  Vercel AI SDK (ai / @ai-sdk/openai / @ai-sdk/google)
@@ -337,7 +371,7 @@ pnpm start    # ビルド済みで起動
   └─ Google Gemini API (変換)
   │  レスポンス変換
   ▼
-クライアントへ返却 (Anthropic 形式 / Responses API 形式 / Chat Completions 形式 / SSE / WebSocket)
+クライアントへ返却 (Anthropic 形式 / Responses API 形式 / Chat Completions 形式 / Gemini 形式 / SSE / WebSocket)
 ```
 
 ## エージェントコーディングツールでの使用例

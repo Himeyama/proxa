@@ -36,7 +36,7 @@ function budgetToReasoningEffort(budget: number): "low" | "medium" | "high" {
 // Anthropic の thinking フィールドを各プロバイダーの providerOptions に変換する。
 //  - Google/Gemini: thinkingConfig.thinkingBudget (トークン予算) + includeThoughts
 //  - OpenAI/responses: reasoningEffort (budget_tokens から段階を導出)。responses は思考要約も有効化
-function toProviderOptions(
+export function toProviderOptions(
   thinking: AnthropicThinkingConfig | undefined,
   providerName: string
 ): Record<string, Record<string, JSONValue>> | undefined {

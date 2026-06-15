@@ -176,7 +176,7 @@ export const usagePage = `<!DOCTYPE html>
   <main>
     <header>
       <h1>ant2chat</h1>
-      <p>Anthropic Messages API (<code>/v1/messages</code>)、OpenAI Responses API (<code>/v1/responses</code>)、OpenAI Chat Completions API (<code>/v1/chat/completions</code>) を受け取り、<br>上流のプロバイダー (Chat Completions / Responses API / Google Gemini など) へ変換して転送するプロキシサーバー。</p>
+      <p>Anthropic Messages API (<code>/v1/messages</code>)、OpenAI Responses API (<code>/v1/responses</code>)、OpenAI Chat Completions API (<code>/v1/chat/completions</code>)、Google Gemini API (<code>/v1beta/models/{model}:generateContent</code>) を受け取り、<br>上流のプロバイダー (Chat Completions / Responses API / Google Gemini など) へ変換して転送するプロキシサーバー。</p>
     </header>
 
     <section>
@@ -229,6 +229,16 @@ export const usagePage = `<!DOCTYPE html>
             <td><span class="badge badge-post">POST</span></td>
             <td><code>/v1/chat/completions</code></td>
             <td>OpenAI Chat Completions API 互換エンドポイント (パススルー / Gemini 変換)</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-get">GET</span></td>
+            <td><a href="/v1beta/models/gemini-2.5-flash:generateContent"><code>/v1beta/models/{model}:…</code></a></td>
+            <td>Gemini API テストページ (ブラウザ) / <code>{"status":"ok"}</code> (API)</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-post">POST</span></td>
+            <td><code>/v1beta/models/{model}:generateContent</code></td>
+            <td>Google Gemini API 互換エンドポイント (<code>:streamGenerateContent</code> でストリーミング)</td>
           </tr>
         </tbody>
       </table>
@@ -313,7 +323,12 @@ ant2chat --provider azure --api-key &lt;key&gt; -u https://&lt;resource&gt;.open
 ant2chat -u https://&lt;resource&gt;.openai.azure.com/openai/deployments/&lt;deployment&gt; -k &lt;key&gt; -m gpt-4o
 
 <span class="comment"># Gemini は models/{model}:generateContent 形式の URL を直接指定可能</span>
-ant2chat -u https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent -k AIzaSy-xxx</code></pre>
+ant2chat -u https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent -k AIzaSy-xxx
+
+<span class="comment"># 受信側で Gemini 形式を使う例 (上流はどのプロバイダーでも可)</span>
+curl http://localhost:3000/v1beta/models/gemini-2.5-flash:generateContent \\
+  -H 'Content-Type: application/json' \\
+  -d '{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}'</code></pre>
     </section>
   </main>
 </body>
