@@ -392,6 +392,13 @@ $env:OPENAI_API_KEY="sk-dummy"
 codex --model gpt-5.4-mini -c 'openai_base_url="http://localhost:3000/v1"'
 ```
 
+### Gemini CLI
+```ps1
+$env:GEMINI_API_KEY="dummy"
+$env:GOOGLE_GEMINI_BASE_URL="http://localhost:3000"
+gemini
+```
+
 ※モデルオプションは任意です。ant2chat の `--model` オプションが優先されます。
 
 ## ライセンス
