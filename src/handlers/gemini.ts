@@ -21,7 +21,8 @@ import {
   resolveModel,
   stripEmptyStringValues,
   extractUpstreamError,
-  extractCacheTokens,
+  resolveCacheTokens,
+  createCacheCapture,
 } from "./provider.js";
 import { toProviderOptions } from "./messages.js";
 import type {
@@ -80,7 +81,8 @@ export async function handleGenerateContent(c: Context): Promise<Response> {
         ?? c.req.query("key")
         ?? "");
 
-  const provider = getProvider(apiKey);
+  const cacheCapture = createCacheCapture();
+  const provider = getProvider(apiKey, cacheCapture);
   const model = resolveModel(modelFromPath);
   if (!model) {
     return geminiError(
@@ -221,7 +223,7 @@ export async function handleGenerateContent(c: Context): Promise<Response> {
           const finishReason = await result.finishReason;
           const promptTokens = usage?.promptTokens ?? 0;
           const completionTokens = usage?.completionTokens ?? 0;
-          const { inputCacheTokens, outputCacheTokens } = extractCacheTokens(await result.providerMetadata);
+          const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(await result.providerMetadata, cacheCapture);
 
           const usageMetadata: GeminiUsageMetadata = {
             promptTokenCount: promptTokens,
@@ -295,7 +297,7 @@ export async function handleGenerateContent(c: Context): Promise<Response> {
 
     const promptTokens = result.usage.promptTokens;
     const completionTokens = result.usage.completionTokens;
-    const { inputCacheTokens, outputCacheTokens } = extractCacheTokens(result.providerMetadata);
+    const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(result.providerMetadata, cacheCapture);
 
     const usageMetadata: GeminiUsageMetadata = {
       promptTokenCount: promptTokens,

@@ -12,7 +12,9 @@ import {
   getLanguageModel,
   stripEmptyStringValues,
   extractUpstreamError,
-  extractCacheTokens,
+  resolveCacheTokens,
+  createCacheCapture,
+  type CacheCapture,
   makeId,
 } from "./provider.js";
 import type {
@@ -43,10 +45,12 @@ export interface ResponsesParams {
   serverToolNames: Set<string>;
   respId: string;
   createdAt: number;
+  cacheCapture: CacheCapture;
 }
 
 export function buildResponsesParams(body: ResponsesRequest, apiKey: string): ResponsesParams {
-  const provider = getProvider(apiKey);
+  const cacheCapture = createCacheCapture();
+  const provider = getProvider(apiKey, cacheCapture);
   const model = resolveModel(body.model);
 
   let instructions = body.instructions;
@@ -83,6 +87,7 @@ export function buildResponsesParams(body: ResponsesRequest, apiKey: string): Re
     serverToolNames,
     respId: makeRespId(),
     createdAt: Math.floor(Date.now() / 1000),
+    cacheCapture,
     commonParams: {
       model: languageModel,
       messages,
@@ -98,7 +103,7 @@ export function buildResponsesParams(body: ResponsesRequest, apiKey: string): Re
 }
 
 export async function emitStreamingLoop(
-  { model, commonParams, serverToolNames, respId, createdAt }: ResponsesParams,
+  { model, commonParams, serverToolNames, respId, createdAt, cacheCapture }: ResponsesParams,
   emit: (event: ResponsesStreamEvent) => void,
   logEntry?: LogEntry,
 ): Promise<void> {
@@ -253,7 +258,7 @@ export async function emitStreamingLoop(
   const outputTokens = usage?.completionTokens || 0;
 
   if (logEntry) {
-    const { inputCacheTokens, outputCacheTokens } = extractCacheTokens(await result.providerMetadata);
+    const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(await result.providerMetadata, cacheCapture);
     const toolCalls = sortedTools.map((t) => ({ name: t.name, arguments: t.finalArgs ?? t.argsText }));
     finishLog(logEntry, {
       inputTokens,
@@ -411,7 +416,7 @@ export async function handleResponses(c: Context): Promise<Response> {
       incomplete_details: finishReason === "length" ? { reason: "max_tokens" } : null,
     };
 
-    const { inputCacheTokens, outputCacheTokens } = extractCacheTokens(result.providerMetadata);
+    const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(result.providerMetadata, params.cacheCapture);
     finishLog(logEntry, {
       inputTokens: result.usage.promptTokens,
       inputCacheTokens,

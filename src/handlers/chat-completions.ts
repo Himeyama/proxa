@@ -18,7 +18,8 @@ import {
   getLanguageModel,
   stripEmptyStringValues,
   extractUpstreamError,
-  extractCacheTokens,
+  resolveCacheTokens,
+  createCacheCapture,
   makeId,
 } from "./provider.js";
 import type {
@@ -290,7 +291,8 @@ async function handlePassthrough(body: ChatCompletionsRequest, apiKey: string, l
 }
 
 function buildConversionParams(body: ChatCompletionsRequest, apiKey: string, model: string) {
-  const provider = getProvider(apiKey);
+  const cacheCapture = createCacheCapture();
+  const provider = getProvider(apiKey, cacheCapture);
   const { system, messages: anthropicMessages } = chatMessagesToAnthropic(body.messages ?? []);
   const filteredSystem =
     system && !model.toLowerCase().includes("claude")
@@ -318,6 +320,7 @@ function buildConversionParams(body: ChatCompletionsRequest, apiKey: string, mod
 
   return {
     serverToolNames,
+    cacheCapture,
     commonParams: {
       model: languageModel,
       messages,
@@ -341,7 +344,7 @@ async function handleViaConversion(
   model: string,
   logEntry: LogEntry
 ): Promise<Response> {
-  const { serverToolNames, commonParams } = buildConversionParams(body, apiKey, model);
+  const { serverToolNames, commonParams, cacheCapture } = buildConversionParams(body, apiKey, model);
   const id = makeId("chatcmpl-");
   const created = Math.floor(Date.now() / 1000);
 
@@ -449,7 +452,7 @@ async function handleViaConversion(
           }));
           controller.enqueue(enc.encode("data: [DONE]\n\n"));
 
-          const { inputCacheTokens, outputCacheTokens } = extractCacheTokens(await result.providerMetadata);
+          const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(await result.providerMetadata, cacheCapture);
           finishLog(logEntry, {
             inputTokens: promptTokens,
             inputCacheTokens,
@@ -512,7 +515,7 @@ async function handleViaConversion(
       },
     };
 
-    const { inputCacheTokens, outputCacheTokens } = extractCacheTokens(result.providerMetadata);
+    const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(result.providerMetadata, cacheCapture);
     finishLog(logEntry, {
       inputTokens: result.usage.promptTokens,
       inputCacheTokens,

@@ -15,7 +15,8 @@ import {
   resolveModel,
   stripEmptyStringValues,
   extractUpstreamError,
-  extractCacheTokens,
+  resolveCacheTokens,
+  createCacheCapture,
 } from "./provider.js";
 import type {
   AnthropicRequest,
@@ -100,7 +101,8 @@ export async function handleMessages(c: Context): Promise<Response> {
   const apiKey = config.apiKey !== ""
     ? config.apiKey
     : (c.req.header("x-api-key") ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
-  const provider = getProvider(apiKey);
+  const cacheCapture = createCacheCapture();
+  const provider = getProvider(apiKey, cacheCapture);
   const model = resolveModel(body.model);
   if (!model) {
     return c.json(
@@ -378,7 +380,7 @@ export async function handleMessages(c: Context): Promise<Response> {
           const outputTokens = usage?.completionTokens ?? 0;
           const finishReason = await result.finishReason;
           const stopReason = mapFinishReason(finishReason, sawToolCall);
-          const { inputCacheTokens, outputCacheTokens } = extractCacheTokens(await result.providerMetadata);
+          const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(await result.providerMetadata, cacheCapture);
 
           enqueue({ type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: outputTokens } });
           enqueue({ type: "message_stop" });
@@ -467,7 +469,7 @@ export async function handleMessages(c: Context): Promise<Response> {
       },
     };
 
-    const { inputCacheTokens, outputCacheTokens } = extractCacheTokens(result.providerMetadata);
+    const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(result.providerMetadata, cacheCapture);
     finishLog(logEntry, {
       inputTokens: result.usage.promptTokens,
       inputCacheTokens,
