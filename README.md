@@ -190,7 +190,7 @@ ant2chat 自身は受信リクエストを認証しない。上流へ渡す API 
 - 「料金表」ボタンで単価を設定できる。行ごとに Provider・Model と単価 (Input / In cache / Output / Out cache、100 万トークンあたりの $) を入力すると、Provider と Model が一致 (大文字小文字を問わず) するログのコストを自動計算する。一致する料金がなければ `—`。設定はブラウザに保存される (サーバーには送らない)
 - 料金表に「1 USD = N JPY」の為替レートを設定すると、コストを `$X.XXXXXX (JPY NNN)` 形式で円換算表示する (未設定なら $ のみ)
 - 入力トークンにはキャッシュ分が含まれる。コストはキャッシュ分を入力単価から差し引き、入力キャッシュ単価で計算する
-- 入力キャッシュは OpenAI 系 (`cached_tokens`) に加え、Gemini (`cachedContentTokenCount`) も記録する。Gemini はキャッシュ数を SDK が捨てるため、上流レスポンスを覗いて回収している (ストリーミング・非ストリーミング両対応)
+- 入力キャッシュは OpenAI 系 (`cached_tokens`) に加え、Gemini (`cachedContentTokenCount`) も記録する。Gemini はキャッシュ数を SDK が捨てるため、上流レスポンスを覗いて回収している (ストリーミング・非ストリーミング両対応)。SSE / JSON の判定はレスポンスの `content-type` で行うため、非ストリーム応答の本文に `data:` (データ URI など) が含まれていても入力キャッシュを正しく記録する
 - ストリーミングでも上流が usage を返すよう、OpenAI 系プロバイダー (`openai` / `responses` / `azure`) には `stream_options: { include_usage: true }` を要求する (`compatibility: "strict"`)。これがないと上流が usage を返さず、トークンが 0 (空欄) と表示される。usage を返さない上流に対しては 0 として記録する
 - 一覧が横に長いときはテーブルを横スクロールできる
 - 行をクリックすると、概要・受信ヘッダー (折りたたみ)・送信したプロンプト (ロール別)・レスポンス本文・生 JSON を表示する

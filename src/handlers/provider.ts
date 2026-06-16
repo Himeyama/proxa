@@ -39,23 +39,47 @@ function extractCachedContentCount(json: string): number | null {
 }
 
 // tee した片側を読み切り、SSE / JSON のどちらからでも cachedContentTokenCount を回収する。
-async function readGeminiCacheTokens(stream: ReadableStream<Uint8Array>, capture: CacheCapture): Promise<void> {
+// SSE / JSON の判定はまずレスポンスの content-type を見る (最も確実)。content-type が無い・
+// 不明な場合は本文の先頭で判定する (JSON は `{` / `[` で始まる)。本文に "data:" が含まれるか
+// で判定すると、非ストリーム JSON の出力テキストに "data:" (データ URI など) が紛れた場合に
+// SSE と誤判定してキャッシュ数を 0 と読み違える (issue: chat completions + Gemini で input cache が 0)。
+async function readGeminiCacheTokens(
+  stream: ReadableStream<Uint8Array>,
+  capture: CacheCapture,
+  contentType: string,
+): Promise<void> {
   try {
     const text = await new Response(stream).text();
     let found = 0;
-    if (text.includes("data:")) {
+    const trimmed = text.trimStart();
+    const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+    const isSSE = contentType.includes("event-stream") || (!contentType.includes("json") && !looksLikeJson);
+
+    let parsedAsJson = false;
+    if (!isSSE && looksLikeJson) {
+      try {
+        // 非ストリーム (単一オブジェクト) / alt=sse でないストリーム (配列) の両方に対応する
+        const parsed = JSON.parse(text) as unknown;
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+        for (const item of items) {
+          const n = (item as { usageMetadata?: { cachedContentTokenCount?: number } })?.usageMetadata?.cachedContentTokenCount;
+          if (typeof n === "number") found = n;
+        }
+        parsedAsJson = true;
+      } catch {
+        // フォールスルー: SSE として解釈する
+      }
+    }
+    if (!parsedAsJson) {
       // SSE: data: {json} 行ごとに見て、最後に現れた cachedContentTokenCount を採用する
       for (const line of text.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice(5).trim();
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        const payload = t.slice(5).trim();
         if (!payload || payload === "[DONE]") continue;
         const n = extractCachedContentCount(payload);
         if (n != null) found = n;
       }
-    } else {
-      const n = extractCachedContentCount(text);
-      if (n != null) found = n;
     }
     capture.inputCacheTokens += found;
   } catch {
@@ -72,8 +96,9 @@ function makeGeminiCacheCaptureFetch(
   return async (input, init) => {
     const res = await baseFetch(input, init);
     if (!res.ok || !res.body) return res;
+    const contentType = res.headers.get("content-type") ?? "";
     const [forSdk, forCapture] = res.body.tee();
-    capture.pending.push(readGeminiCacheTokens(forCapture, capture));
+    capture.pending.push(readGeminiCacheTokens(forCapture, capture, contentType));
     // fetch (undici) は本体を既に展開済みだがヘッダーには content-encoding/length が残るため除去する
     const headers = new Headers(res.headers);
     headers.delete("content-encoding");
