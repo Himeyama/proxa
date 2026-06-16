@@ -335,6 +335,7 @@ ant2chat --provider gemini --gemini-relay-url https://example.com/v1/baseurl/end
 - 転送先がモデルを決める前提のため、モデル名は URL パスに乗らない。`-u` / `customBaseURL` は relay 時には使われない
 - 転送先が Google 認証を要求しない場合は API キー未指定でも動作する (内部でプレースホルダを補う)。要求する場合は通常どおり `-k` / `CHAT_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` でキーを渡す
 - `/v1/messages` と `/v1/chat/completions` (Gemini 変換パス) の双方に効く
+- 起動時バナーは relay 設定時、実際の転送先 URL を `Upstream:  <url> (relay)` と表示する (使われない SDK のベース URL は表示しない)
 
 ### システムプロンプトの行除去 (`--strip-system-line`)
 

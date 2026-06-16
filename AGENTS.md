@@ -371,6 +371,7 @@ google / gemini プロバイダーの認証ヘッダーは `--auth-type` (環境
 - relay 時は SDK の URL 組み立てを無視するため `-u` / `customBaseURL` は使われない。モデル名も URL パスに乗らない (relay 先がモデルを決める前提)。リクエストボディ・ヘッダー (`--auth-type` で解決した認証ヘッダーなど) はそのまま転送される
 - relay 先が Google 認証を必要としない場合に備え、API キー未指定でも SDK が落ちないようプレースホルダ (`"relay"`) を補う。relay 先が Google 互換認証を要求するなら `-k` / `CHAT_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` で実キーを渡す
 - `/v1/messages` と `/v1/chat/completions` (Gemini 変換パス) の双方に効く (どちらも `getProvider()` 経由)
+- 起動時バナー (`src/index.ts`) は relay 設定時、実際の転送先である relay URL を `Upstream:  <relayURL> (relay)` と表示する (使われない SDK のベース URL は表示しない)
 
 ### システムプロンプトの行除去 (`--strip-system-line`)
 
