@@ -48,6 +48,7 @@ export interface ChatCompletionsRequest {
   model: string;
   messages: ChatMessage[];
   stream?: boolean;
+  stream_options?: { include_usage?: boolean };
   temperature?: number;
   top_p?: number;
   max_tokens?: number;

@@ -220,6 +220,16 @@ function normalizeMaxTokensForOpenAI(body: ChatCompletionsRequest): void {
   }
 }
 
+// パススルーのストリーミング時、上流に usage を出力させる。
+// OpenAI / Azure / OpenRouter などは stream_options.include_usage を指定しないと
+// ストリーム応答の各チャンクに usage を含めず、/logs のトークン数が常に 0 になる。
+// クライアントが明示済みならその指定を尊重する。
+function ensureStreamUsage(body: ChatCompletionsRequest): void {
+  if (!body.stream) return;
+  if (body.stream_options?.include_usage != null) return;
+  body.stream_options = { ...body.stream_options, include_usage: true };
+}
+
 // system / developer ロールのメッセージから指定パターンを含む行を除去する (body.messages を直接書き換える)。
 // handleChatCompletions の冒頭で 1 度だけ呼び、パススルー・変換・ログのすべてに反映させる。
 function stripSystemFromMessages(messages: ChatMessage[] | undefined): void {
@@ -239,6 +249,7 @@ function stripSystemFromMessages(messages: ChatMessage[] | undefined): void {
 // Chat Completions 互換の上流へリクエストをそのまま転送する
 async function handlePassthrough(body: ChatCompletionsRequest, apiKey: string, logEntry: LogEntry): Promise<Response> {
   normalizeMaxTokensForOpenAI(body);
+  ensureStreamUsage(body);
   const url = `${config.baseURL.replace(/\/+$/, "")}/chat/completions`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {
