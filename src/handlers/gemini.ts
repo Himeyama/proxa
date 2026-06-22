@@ -1,4 +1,4 @@
-import { generateText, streamText, type ToolSet } from "ai";
+import { generateText, streamText } from "ai";
 import type { Context } from "hono";
 import { config } from "../config.js";
 import { tuiLog } from "../tui-log.js";
@@ -12,7 +12,7 @@ import {
   geminiToolConfigToToolChoice,
   geminiThinkingToAnthropic,
 } from "../converters/from-gemini.js";
-import { googleSearchTool } from "../tools/google-search.js";
+import { injectServerTools } from "../tools/google-search.js";
 import { startLog, finishLog, redactHeaders, type LogToolCall } from "../log-store.js";
 import {
   isGoogleProvider,
@@ -113,14 +113,7 @@ export async function handleGenerateContent(c: Context): Promise<Response> {
   const clientTools = isGoogleProvider(config.providerName)
     ? toGeminiTools(anthropicTools)
     : toChatCompletionsTools(anthropicTools);
-  const serverToolNames = new Set<string>();
-  const tools: ToolSet = { ...(clientTools ?? {}) };
-  if (!config.noSearch) {
-    tools["google_search"] = googleSearchTool;
-    tools["WebSearch"] = googleSearchTool;
-    serverToolNames.add("google_search");
-    serverToolNames.add("WebSearch");
-  }
+  const { tools, serverToolNames } = injectServerTools(clientTools);
   // サーバー側ツールを指定した tool_choice は無限ループになるため無視する
   const isServerToolChoice =
     anthropicChoice?.type === "tool" && serverToolNames.has(anthropicChoice.name);

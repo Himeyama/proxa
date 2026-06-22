@@ -1,4 +1,4 @@
-import { generateText, streamText, type ToolSet } from "ai";
+import { generateText, streamText } from "ai";
 import type { Context } from "hono";
 import { config } from "../config.js";
 import { tuiLog } from "../tui-log.js";
@@ -10,7 +10,7 @@ import {
   chatToolsToAnthropic,
   chatToolChoiceToAnthropic,
 } from "../converters/from-chat-completions.js";
-import { googleSearchTool } from "../tools/google-search.js";
+import { injectServerTools } from "../tools/google-search.js";
 import { startLog, finishLog, redactHeaders, type LogEntry, type LogToolCall } from "../log-store.js";
 import {
   isGoogleProvider,
@@ -303,14 +303,7 @@ function buildConversionParams(body: ChatCompletionsRequest, apiKey: string, mod
   const messages = toMessages(anthropicMessages, filteredSystem, { flattenToolHistory: true });
 
   const clientTools = toGeminiTools(chatToolsToAnthropic(body.tools));
-  const serverToolNames = new Set<string>();
-  const tools: ToolSet = { ...(clientTools ?? {}) };
-  if (!config.noSearch) {
-    tools["google_search"] = googleSearchTool;
-    tools["WebSearch"] = googleSearchTool;
-    serverToolNames.add("google_search");
-    serverToolNames.add("WebSearch");
-  }
+  const { tools, serverToolNames } = injectServerTools(clientTools);
 
   const anthropicChoice = chatToolChoiceToAnthropic(body.tool_choice);
   const isServerToolChoice = anthropicChoice?.type === "tool" && serverToolNames.has(anthropicChoice.name);

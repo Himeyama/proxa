@@ -1,5 +1,6 @@
-import { jsonSchema } from "ai";
+import { jsonSchema, type ToolSet } from "ai";
 import { Agent, fetch as uFetch } from "undici";
+import { config } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // TLS fingerprint を Chrome に近づけるカスタム Agent
@@ -223,3 +224,22 @@ export const googleSearchTool = {
     }
   },
 };
+
+// クライアントツールにサーバー側 Web 検索ツールを注入する。
+// --no-search / NO_SEARCH=1 のときは注入しない。
+// 注入したツール名 (serverToolNames) は、ツールループ中に内部実行する／クライアントへ
+// 公開しない判定や、tool_choice がサーバーツールを指していないか判定するために使う。
+export function injectServerTools(clientTools: ToolSet | undefined): {
+  tools: ToolSet;
+  serverToolNames: Set<string>;
+} {
+  const tools: ToolSet = { ...clientTools };
+  const serverToolNames = new Set<string>();
+  if (!config.noSearch) {
+    tools["google_search"] = googleSearchTool;
+    tools["WebSearch"] = googleSearchTool;
+    serverToolNames.add("google_search");
+    serverToolNames.add("WebSearch");
+  }
+  return { tools, serverToolNames };
+}

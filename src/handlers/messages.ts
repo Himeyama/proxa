@@ -1,4 +1,4 @@
-import { generateText, streamText, type JSONValue, type ToolSet } from "ai";
+import { generateText, streamText, type JSONValue } from "ai";
 import type { Context } from "hono";
 import { config } from "../config.js";
 import { tuiLog } from "../tui-log.js";
@@ -6,7 +6,7 @@ import { filterMinTools, filterSystemForNonClaudeModel, finalSystemForLog, toMes
 import { toChatCompletionsTools } from "../converters/to-chat-completions.js";
 import { toGeminiTools } from "../converters/to-gemini.js";
 import { buildKnownToolNames, salvageToolCallsFromText, classifyStreamStart, splitLiveToolMarker } from "../converters/salvage-tool-calls.js";
-import { googleSearchTool } from "../tools/google-search.js";
+import { injectServerTools } from "../tools/google-search.js";
 import { startLog, finishLog, redactHeaders, type LogToolCall } from "../log-store.js";
 import {
   isGoogleProvider,
@@ -18,6 +18,7 @@ import {
   extractUpstreamError,
   resolveCacheTokens,
   createCacheCapture,
+  makeId,
 } from "./provider.js";
 import type {
   AnthropicRequest,
@@ -80,14 +81,8 @@ export function toProviderOptions(
   return { openai: openaiOptions };
 }
 
-function makeMessageId(): string {
-  return `msg_${crypto.randomUUID().replace(/-/g, "")}`;
-}
-
-function makeToolUseId(): string {
-  return `toolu_${crypto.randomUUID().replace(/-/g, "")}`;
-}
-
+const makeMessageId = (): string => makeId("msg_");
+const makeToolUseId = (): string => makeId("toolu_");
 
 function mapFinishReason(
   finishReason: string,
@@ -171,14 +166,7 @@ export async function handleMessages(c: Context): Promise<Response> {
     ? toGeminiTools(body.tools)
     : toChatCompletionsTools(body.tools);
   // サーバー側ツールは --no-search / NO_SEARCH=1 で無効化できる
-  const serverToolNames = new Set<string>();
-  const tools: ToolSet = { ...clientTools };
-  if (!config.noSearch) {
-    tools["google_search"] = googleSearchTool;
-    tools["WebSearch"] = googleSearchTool;
-    serverToolNames.add("google_search");
-    serverToolNames.add("WebSearch");
-  }
+  const { tools, serverToolNames } = injectServerTools(clientTools);
   // サーバー側ツールを指定した tool_choice は全ステップに伝播して無限ループになるため無視する
   const isServerToolChoice =
     body.tool_choice != null &&

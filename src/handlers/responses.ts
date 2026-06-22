@@ -1,10 +1,10 @@
-import { generateText, streamText, type ToolSet } from "ai";
+import { generateText, streamText } from "ai";
 import type { Context } from "hono";
 import { config } from "../config.js";
 import { tuiLog } from "../tui-log.js";
 import { filterMinTools, filterSystemForNonClaudeModel, finalSystemForLog } from "../converters/shared.js";
 import { toMessagesFromResponses, toToolsFromResponses, toToolChoiceFromResponses } from "../converters/from-responses.js";
-import { googleSearchTool } from "../tools/google-search.js";
+import { injectServerTools } from "../tools/google-search.js";
 import { startLog, finishLog, redactHeaders, type LogEntry } from "../log-store.js";
 import {
   getProvider,
@@ -61,14 +61,7 @@ export function buildResponsesParams(body: ResponsesRequest, apiKey: string): Re
   const messages = toMessagesFromResponses(body.input, instructions);
   const clientTools = toToolsFromResponses(body.tools);
 
-  const serverToolNames = new Set<string>();
-  const tools: ToolSet = { ...(clientTools ?? {}) };
-  if (!config.noSearch) {
-    tools["google_search"] = googleSearchTool;
-    tools["WebSearch"] = googleSearchTool;
-    serverToolNames.add("google_search");
-    serverToolNames.add("WebSearch");
-  }
+  const { tools, serverToolNames } = injectServerTools(clientTools);
 
   const isServerToolChoice =
     body.tool_choice != null &&
