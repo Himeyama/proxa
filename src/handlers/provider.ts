@@ -2,6 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModelV1 } from "ai";
 import { config } from "../config.js";
+import { makeGeminiCacheFetch } from "../gemini-cache.js";
 
 export function isGoogleProvider(providerName: string): boolean {
   return providerName === "google" || providerName === "gemini";
@@ -134,10 +135,17 @@ export function getProvider(apiKey: string, capture?: CacheCapture) {
   if (isGoogleProvider(providerName)) {
     // relay 時は SDK の URL 組み立てを fetch で上書きするため baseURL は無視する。
     // capture 指定時はレスポンスを覗いて cachedContentTokenCount を回収する fetch でラップする。
-    const baseFetch = geminiRelayURL ? makeGeminiRelayFetch(geminiRelayURL) : globalThis.fetch;
+    let baseFetch = geminiRelayURL ? makeGeminiRelayFetch(geminiRelayURL) : globalThis.fetch;
+    // 明示キャッシュ: outgoing body を書き換えて cachedContent を参照させる。
+    // relay 併用時も有効。生成は relay 経由 (baseFetch) で送りつつ、キャッシュの作成/削除は
+    // relay へ吸い込まれないよう直 fetch (globalThis.fetch) で Gemini の cachedContents へ送る。
+    if (config.geminiCache) {
+      baseFetch = makeGeminiCacheFetch(baseFetch, config.geminiCacheTtl, globalThis.fetch);
+    }
+    const usesCustomFetch = geminiRelayURL != null || config.geminiCache;
     const fetchImpl = capture
       ? makeGeminiCacheCaptureFetch(baseFetch, capture)
-      : (geminiRelayURL ? baseFetch : undefined);
+      : (usesCustomFetch ? baseFetch : undefined);
     const urlOpts: { fetch?: typeof globalThis.fetch; baseURL?: string } = {};
     if (fetchImpl) urlOpts.fetch = fetchImpl;
     if (!geminiRelayURL && customBaseURL) urlOpts.baseURL = customBaseURL;

@@ -67,6 +67,7 @@ src/
 ├── gemini-test-page.ts          # GET /v1beta/models/{model}:… で返すテストページ (HTML)
 ├── logs-page.ts                 # GET /logs で返す通信ログ閲覧ページ (HTML)
 ├── log-store.ts                 # 通信ログのインメモリストア (startLog / finishLog / getLogs / clearLogs)
+├── gemini-cache.ts              # Gemini 明示キャッシュ (CachedContent) を fetch 層で透過処理 (makeGeminiCacheFetch)
 ├── handlers/
 │   ├── messages.ts              # POST /v1/messages の処理。ストリーム・非ストリーム両対応。toProviderOptions をエクスポート
 │   ├── responses.ts             # POST /v1/responses の処理 + buildResponsesParams / emitStreamingLoop をエクスポート
@@ -107,6 +108,9 @@ Options:
       --no-search         組み込み Web 検索ツールを無効化
       --min               最小構成のツールのみ転送する。エージェント実行・タスク管理・スケジューリング系のクライアントツール (Agent / Task* / Cron* / ScheduleWakeup / Monitor など) を上流へ送る前に除外する
       --gemini-relay-url <url>  google/gemini 限定。SDK に URL を組み立てさせず、全 Gemini リクエストをこの URL へそのまま転送する
+      --gemini-cache          google/gemini で明示キャッシュ (CachedContent) を使う (既定で有効)。安定プレフィックス (systemInstruction + tools + 先頭 contents) をキャッシュし cachedContent で参照することで毎回の再送を避ける。--gemini-relay-url 併用時も有効 (生成は relay 経由、作成/削除は Gemini の cachedContents へ直送)
+      --no-gemini-cache       明示キャッシュを無効化する
+      --gemini-cache-ttl <s>  明示キャッシュの TTL (秒)。デフォルト: 600
       --strip-system-line <text>  受信したシステムプロンプトのうち <text> を含む行を除去する (大文字小文字を区別する部分一致)。カンマ区切りで複数パターン指定可、繰り返し指定も可
   -h, --help              ヘルプを表示
 ```
@@ -133,6 +137,8 @@ CLI オプションで上書き可能。`.env.example` をコピーして `.env`
 | `NO_SEARCH` | 任意 | `1` または `true` で組み込み Web 検索ツールを無効化 |
 | `MIN_TOOLS` | 任意 | `--min` のフォールバック。`1` または `true` で最小構成のツールのみ転送 |
 | `GEMINI_RELAY_URL` | 任意 | `--gemini-relay-url` のフォールバック。`--provider google` / `gemini` 限定の中継先 URL |
+| `GEMINI_CACHE` | 任意 | 明示キャッシュ (`--provider google` / `gemini` 限定)。**既定で有効**。`0` または `false` で無効化 (`--no-gemini-cache` と同等) |
+| `GEMINI_CACHE_TTL` | 任意 | `--gemini-cache-ttl` のフォールバック。明示キャッシュの TTL (秒)。デフォルト: 600 |
 | `STRIP_SYSTEM_LINE` | 任意 | `--strip-system-line` のフォールバック。カンマ区切りで複数パターン可。指定文字列を含むシステムプロンプト行を除去 |
 
 ## コマンド
@@ -373,6 +379,22 @@ google / gemini プロバイダーの認証ヘッダーは `--auth-type` (環境
 - relay 先が Google 認証を必要としない場合に備え、API キー未指定でも SDK が落ちないようプレースホルダ (`"relay"`) を補う。relay 先が Google 互換認証を要求するなら `-k` / `CHAT_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` で実キーを渡す
 - `/v1/messages` と `/v1/chat/completions` (Gemini 変換パス) の双方に効く (どちらも `getProvider()` 経由)
 - 起動時バナー (`src/index.ts`) は relay 設定時、実際の転送先である relay URL を `Upstream:  <relayURL> (relay)` と表示する (使われない SDK のベース URL は表示しない)
+
+### Gemini: 明示キャッシュ (`--gemini-cache`)
+
+`--provider google` / `gemini` で、Gemini の**明示キャッシュ (explicit caching / CachedContent)** を使い、安定したプレフィックス (systemInstruction + tools + 先頭の contents) を上流の `cachedContents` に保存して `cachedContent` で参照する。これにより、毎リクエストで巨大な system プロンプト・ツール定義・会話履歴を再送せずに済み、入力トークンのコストを下げられる。**google/gemini では既定で有効**で、`--no-gemini-cache` または環境変数 `GEMINI_CACHE=0`/`false` で無効化する (`--gemini-cache` は明示的に有効化する no-op の別名)。TTL は `--gemini-cache-ttl` / `GEMINI_CACHE_TTL` (秒、デフォルト 600) で指定する。`config.geminiCache` は「無効化されていない限り true」に解決され、`getProvider()` の google ブランチで参照される (relay 併用時も有効)。
+
+- **仕組み (fetch 層で透過)**: `getProvider()` が `createGoogleGenerativeAI` に渡す fetch を `makeGeminiCacheFetch` (`src/gemini-cache.ts`) でラップする。ハンドラー側のコードは一切変更しない。SDK が組み立てた `generateContent` / `streamGenerateContent` の**リクエスト本文をインターセプト**し、`systemInstruction` / `tools` / `contents` の安定プレフィックスをキャッシュに寄せ、本文からそれらを外して `cachedContent: "cachedContents/..."` を付ける。フロー: `gemini SDK → makeGeminiCaptureFetch → makeGeminiCacheFetch → (キャッシュ作成/参照) → 上流`
+- **Gemini の制約への対応**: Gemini はキャッシュ参照時に `systemInstruction` / `tools` をリクエスト本文へ重複指定できない (エラーになる) ため、キャッシュに入れた要素はリクエストから外す。一方で **SDK には tools をそのまま渡し続ける** (本文書き換えは fetch 層のみ) ため、SDK はツール定義を保持したまま `maxSteps` のツールループ・サーバー側 Web 検索の実行を継続できる。サーバー側 Web 検索 (`--no-search` で無効化) も従来どおり動く
+- **プレフィックス照合 (累積ハッシュ)**: `contents` 配列を 1 要素ずつ進めながら累積ハッシュ `keys[i]` (= systemInstruction + tools + contents[0..i-1]) を計算する。レジストリ (インメモリ Map) から「現在のリクエストのプレフィックスに一致する最長の有効キャッシュ」を再利用し、残りの contents だけを送る。append-only で伸びる会話 (Claude Code など) では、前ターンで作ったキャッシュが次ターンのプレフィックスとしてヒットする
+- **キャッシュ作成**: 次ターン以降の再利用のため、末尾 1 件を除いたプレフィックス (`i = contents.length - 1`) を `POST {baseURL}/cachedContents` で作成し (`ttl: "<秒>s"`)、返ってきた `name` をレジストリへ登録する。作成・削除リクエストの認証ヘッダーは SDK が付けた送信ヘッダー (`x-goog-api-key` など) を流用する
+- **コスト管理 (置き換え削除)**: 再利用していた小さいキャッシュは、より大きいキャッシュを作成した時点で `DELETE {baseURL}/cachedContents/{name}` で best-effort 削除する。これにより 1 会話あたり概ね 1 個の有効キャッシュに収束させ、保管課金の累積を抑える
+- **フォールバック / 堅牢性**: (1) 作成に失敗した prefix (最小トークン未満など) は短時間 (60 秒) スキップして毎回叩かない。(2) キャッシュ参照リクエストが上流で `!ok` (キャッシュ失効の可能性) を返したら、レジストリから除いて**元のリクエストで一度だけ再試行**する。(3) 本文が JSON でない・contents が空・既に `cachedContent` 参照済みなどの場合はそのまま素通しする。いずれの失敗もキャッシュ無しの通常転送に縮退する
+- **キャッシュトークンの記録**: 参照成功時のレスポンスには `usageMetadata.cachedContentTokenCount` が載るため、既存の `makeGeminiCacheCaptureFetch` がそれを回収し `/logs` の In cache に反映する (作成/削除リクエストは capture でラップしないため集計に混ざらない)
+- **relay 併用**: `--gemini-relay-url` 設定時も明示キャッシュは有効。**生成リクエストは relay 経由**で送りつつ、**キャッシュの作成/削除は relay へ吸い込まれないよう直 fetch (`globalThis.fetch`) で Gemini の `cachedContents` エンドポイントへ直接送る** (`makeGeminiCacheFetch(baseFetch, ttl, globalThis.fetch)` の第 3 引数 `manageFetch`)。cachedContents の URL は SDK が組み立てた元 URL (`{baseURL}/models/{model}:…`) から `/models/` 以前を取って導出する。生成と作成が同じ Gemini プロジェクト (relay 先が同一バックエンドへ転送) を指す前提。relay 先が独自認証を要求し直 fetch での作成が失敗する場合は、キャッシュ無しの通常転送 (relay 経由) へ縮退する
+- **適用範囲**: `getProvider()` 経由の Gemini パス全て — `/v1/messages`・`/v1beta/models/{model}:…`・`/v1/chat/completions` (Gemini 変換パス) の stream / non-stream
+- **注意 (単発リクエスト)**: プロキシは将来の再利用を予測できないため、再送されない単発リクエストではキャッシュ作成分のわずかな保管課金が無駄になる。会話を繰り返すクライアント向けの最適化である
+- **起動時バナー**: 有効時 (google/gemini) に `Cache:     explicit (CachedContent, ttl <秒>s)` を表示する。relay 併用時は `..., generate via relay` を付記する
 
 ### システムプロンプトの行除去 (`--strip-system-line`)
 

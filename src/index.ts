@@ -5,7 +5,7 @@ import { config } from "./config.js";
 import { createApp } from "./server.js";
 import { handleResponsesWs } from "./handlers/responses-ws.js";
 
-const { port, baseURL, authType, defaultModel, providerName, geminiRelayURL, global: globalListen } = config;
+const { port, baseURL, authType, defaultModel, providerName, geminiRelayURL, geminiCache, geminiCacheTtl, global: globalListen } = config;
 const hostname = globalListen ? "0.0.0.0" : "127.0.0.1";
 const app = createApp();
 
@@ -29,6 +29,10 @@ const server = serve({ fetch: app.fetch, port, hostname }, () => {
     console.log(`  Model:     ${defaultModel} (forced)`);
   } else {
     console.log(`  Model:     (client-specified)`);
+  }
+  if (geminiCache && (providerName === "google" || providerName === "gemini")) {
+    const via = geminiRelayURL ? ", generate via relay" : "";
+    console.log(`  Cache:     explicit (CachedContent, ttl ${geminiCacheTtl}s${via})`);
   }
 });
 

@@ -68,6 +68,9 @@ Options:
       --no-search         組み込み Web 検索ツールを無効化
       --min               最小構成のツールのみ転送する。エージェント実行・タスク管理・スケジューリング系のクライアントツール (Agent / Task* / Cron* / ScheduleWakeup / Monitor など) を上流へ送る前に除外する
       --gemini-relay-url <url>  google/gemini 限定。SDK に URL を組み立てさせず、全 Gemini リクエストをこの URL へそのまま転送する
+      --gemini-cache          google/gemini で明示キャッシュ (CachedContent) を使う (既定で有効)。安定プレフィックス (systemInstruction + tools + 先頭 contents) をキャッシュし cachedContent で参照することで毎回の再送を避ける。--gemini-relay-url 併用時も有効 (生成は relay 経由、作成/削除は Gemini の cachedContents へ直送)
+      --no-gemini-cache       明示キャッシュを無効化する
+      --gemini-cache-ttl <s>  明示キャッシュの TTL (秒)。デフォルト: 600
       --strip-system-line <text>  受信したシステムプロンプトのうち <text> を含む行を除去する (大文字小文字を区別する部分一致)。カンマ区切りで複数パターン指定可、繰り返し指定も可
   -h, --help              ヘルプを表示
 ```
@@ -94,6 +97,8 @@ CLI オプションで上書き可能。
 | `NO_SEARCH` | `1` または `true` で組み込み Web 検索ツールを無効化 |
 | `MIN_TOOLS` | `--min` のフォールバック。`1` または `true` で最小構成のツールのみ転送 |
 | `GEMINI_RELAY_URL` | `--gemini-relay-url` のフォールバック。`--provider google` / `gemini` 限定の中継先 URL |
+| `GEMINI_CACHE` | 明示キャッシュ (`--provider google` / `gemini` 限定)。**既定で有効**。`0` または `false` で無効化 (`--no-gemini-cache` と同等) |
+| `GEMINI_CACHE_TTL` | `--gemini-cache-ttl` のフォールバック。明示キャッシュの TTL (秒)。デフォルト: 600 |
 | `STRIP_SYSTEM_LINE` | `--strip-system-line` のフォールバック。カンマ区切りで複数パターン可。指定文字列を含むシステムプロンプト行を除去 |
 
 ### 設定方法
@@ -337,6 +342,30 @@ ant2chat --provider gemini --gemini-relay-url https://example.com/v1/baseurl/end
 - 転送先が Google 認証を要求しない場合は API キー未指定でも動作する (内部でプレースホルダを補う)。要求する場合は通常どおり `-k` / `CHAT_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` でキーを渡す
 - `/v1/messages` と `/v1/chat/completions` (Gemini 変換パス) の双方に効く
 - 起動時バナーは relay 設定時、実際の転送先 URL を `Upstream:  <url> (relay)` と表示する (使われない SDK のベース URL は表示しない)
+
+### Gemini: 明示キャッシュ (`--gemini-cache`)
+
+`--provider google` / `gemini` で、Gemini の**明示キャッシュ (CachedContent)** を使う。systemInstruction・ツール定義・会話履歴の安定したプレフィックスを上流にキャッシュして `cachedContent` で参照することで、毎リクエストでの再送を避け、入力トークンのコストを下げる。会話を繰り返すクライアント (Claude Code など、巨大な system + 多数のツール) で効果が大きい。**google/gemini では既定で有効**。
+
+```bash
+# 既定で有効 (TTL 600 秒)。明示指定は不要
+ant2chat --provider gemini -k AIzaSy-xxx
+
+# TTL を 30 分に
+ant2chat --provider gemini --gemini-cache-ttl 1800 -k AIzaSy-xxx
+
+# 無効化する
+ant2chat --provider gemini --no-gemini-cache -k AIzaSy-xxx
+```
+
+- fetch 層で透過的に動作する。SDK が組み立てた Gemini リクエストの本文をインターセプトし、安定プレフィックスをキャッシュへ寄せて本文から外し、`cachedContent` を付けて転送する (ハンドラーのコードは変更なし)
+- Gemini はキャッシュ参照時に systemInstruction / tools をリクエストへ重複指定できないためそれらをキャッシュへ移すが、SDK にはツール定義を渡し続けるので、ツールループ・サーバー側 Web 検索はそのまま動く
+- `contents` を 1 件ずつ進めた累積ハッシュで「現在のリクエストの最長一致キャッシュ」を再利用し、残りの contents だけを送る。append-only で伸びる会話では前ターンのキャッシュが次ターンでヒットする
+- 古い小さなキャッシュは新しい大きなキャッシュ作成時に best-effort で削除し、保管課金の累積を抑える
+- 失敗時 (最小トークン未満で作成不可・キャッシュ失効など) はキャッシュ無しの通常転送へ自動で縮退する。参照時に得られる `cachedContentTokenCount` は `/logs` の In cache に反映される
+- `--gemini-relay-url` 併用時も有効。生成リクエストは relay 経由で送り、キャッシュの作成/削除は Gemini の `cachedContents` エンドポイントへ直接送る (生成と作成が同一 Gemini プロジェクトを指す前提)。`/v1/messages`・`/v1beta/models/{model}:…`・`/v1/chat/completions` (Gemini 変換) に効く
+- 再送されない単発リクエストではキャッシュ作成分のわずかな保管課金が無駄になる点に注意
+- 起動時バナーは有効時に `Cache:     explicit (CachedContent, ttl <秒>s)` を表示する
 
 ### システムプロンプトの行除去 (`--strip-system-line`)
 

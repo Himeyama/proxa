@@ -21,6 +21,9 @@ const { values } = parseArgs({
     "no-search": { type: "boolean" },
     min:         { type: "boolean" },
     "gemini-relay-url": { type: "string" },
+    "gemini-cache": { type: "boolean" },
+    "no-gemini-cache": { type: "boolean" },
+    "gemini-cache-ttl": { type: "string" },
     "strip-system-line": { type: "string", multiple: true },
     help:        { type: "boolean", short: "h" },
   },
@@ -50,6 +53,13 @@ Options:
       --gemini-relay-url <url>  For --provider google/gemini: POST every Gemini request verbatim to this exact URL
                                 instead of letting the SDK build {baseURL}/models/{model}:generateContent
                                 (the ?alt=sse query is preserved for streaming)
+      --gemini-cache          For --provider google/gemini: use explicit caching (CachedContent). Enabled by
+                              default. The stable prefix (systemInstruction + tools + leading contents) is
+                              cached and referenced via cachedContent, so it is not re-sent each request.
+                              Works with --gemini-relay-url too (generate goes via relay; cache create/delete
+                              go directly to the Gemini cachedContents endpoint)
+      --no-gemini-cache       Disable explicit caching
+      --gemini-cache-ttl <s>  Explicit cache TTL in seconds (default: 600)
       --strip-system-line <text>  Remove any line of the incoming system prompt that contains <text>
                                   (case-sensitive substring match). Comma-separated for multiple patterns;
                                   also repeatable
@@ -68,6 +78,8 @@ Environment variables (overridden by CLI options):
   NO_SEARCH                      Disable built-in web search tool (set to "1" or "true")
   MIN_TOOLS                      Forward a minimal tool set (set to "1" or "true")
   GEMINI_RELAY_URL               For --provider google/gemini: POST every Gemini request verbatim to this exact URL
+  GEMINI_CACHE                   For --provider google/gemini: explicit caching (enabled by default; set to "0" or "false" to disable)
+  GEMINI_CACHE_TTL               Explicit cache TTL in seconds (default: 600)
   STRIP_SYSTEM_LINE              Remove any system-prompt line containing this text (comma-separated for multiple patterns)
 `);
   process.exit(0);
@@ -163,6 +175,18 @@ try {
 
 const noSearchEnv = process.env.NO_SEARCH === "1" || process.env.NO_SEARCH === "true";
 const minToolsEnv = process.env.MIN_TOOLS === "1" || process.env.MIN_TOOLS === "true";
+// 明示キャッシュは google/gemini で既定 ON。--no-gemini-cache / GEMINI_CACHE=0|false で無効化する。
+const geminiCacheDisabled =
+  Boolean(values["no-gemini-cache"]) ||
+  process.env.GEMINI_CACHE === "0" ||
+  process.env.GEMINI_CACHE === "false";
+
+// 明示キャッシュの TTL (秒)。--gemini-cache-ttl → GEMINI_CACHE_TTL → 既定 600。
+function resolveGeminiCacheTtl(): number {
+  const raw = values["gemini-cache-ttl"] != null ? String(values["gemini-cache-ttl"]) : process.env.GEMINI_CACHE_TTL;
+  const n = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 600;
+}
 
 // Gemini 専用: 設定された場合、SDK が組み立てる URL を無視してこの URL へ verbatim 転送する
 const geminiRelayURL =
@@ -199,5 +223,7 @@ export const config = {
   noSearch:      Boolean(values["no-search"]) || noSearchEnv,
   minTools:      Boolean(values.min) || minToolsEnv,
   geminiRelayURL,
+  geminiCache:    !geminiCacheDisabled,
+  geminiCacheTtl: resolveGeminiCacheTtl(),
   stripSystemLine: resolveStripSystemLine(),
 };
