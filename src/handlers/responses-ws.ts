@@ -35,7 +35,7 @@ export async function handleResponsesWs(
         ws.send(JSON.stringify({
           type: "error",
           code: "invalid_request",
-          message: 'No model specified. Provide a "model" field in the request, or start ant2chat with --model / CHAT_DEFAULT_MODEL.',
+          message: 'No model specified. Provide a "model" field in the request, or start proxa with --model / CHAT_DEFAULT_MODEL.',
         }));
         ws.close();
         resolve();

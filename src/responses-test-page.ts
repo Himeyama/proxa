@@ -3,7 +3,7 @@ export const responsesTestPage = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ant2chat — Responses API テスト</title>
+  <title>proxa — Responses API テスト</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=BIZ+UDGothic:wght@400;700&family=Noto+Sans+JP:wght@700&family=Noto+Serif+JP:wght@400&display=swap" rel="stylesheet">
@@ -215,7 +215,7 @@ export const responsesTestPage = `<!DOCTYPE html>
 <body>
   <main>
     <header>
-      <h1><a href="/">ant2chat</a><span class="path"> /v1/responses</span></h1>
+      <h1><a href="/">proxa</a><span class="path"> /v1/responses</span></h1>
       <p>OpenAI Responses API (<code>/v1/responses</code>) のテストコンソール。</p>
     </header>
 

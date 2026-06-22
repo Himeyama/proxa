@@ -126,7 +126,7 @@ export async function handleMessages(c: Context): Promise<Response> {
         type: "error",
         error: {
           type: "invalid_request_error",
-          message: 'No model specified. Provide a "model" field in the request, or start ant2chat with --model / CHAT_DEFAULT_MODEL.',
+          message: 'No model specified. Provide a "model" field in the request, or start proxa with --model / CHAT_DEFAULT_MODEL.',
         },
       },
       400

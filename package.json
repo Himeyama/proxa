@@ -1,10 +1,10 @@
 {
-  "name": "ant2chat",
+  "name": "proxa",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "ant2chat": "./dist/index.js"
+    "proxa": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

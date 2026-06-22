@@ -16,7 +16,7 @@ install: dist/index.js
 	npm install -g .
 
 uninstall:
-	npm uninstall -g ant2chat
+	npm uninstall -g proxa
 
 pack: dist/index.js
 	npm pack

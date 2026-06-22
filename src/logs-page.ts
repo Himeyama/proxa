@@ -3,7 +3,7 @@ export const logsPage = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ant2chat — 通信ログ</title>
+  <title>proxa — 通信ログ</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=BIZ+UDGothic:wght@400;700&family=Noto+Sans+JP:wght@700&family=Noto+Serif+JP:wght@400&display=swap" rel="stylesheet">
@@ -298,7 +298,7 @@ export const logsPage = `<!DOCTYPE html>
 <body>
   <main>
     <header>
-      <h1><a href="/">ant2chat</a><span class="path"> /logs</span></h1>
+      <h1><a href="/">proxa</a><span class="path"> /logs</span></h1>
       <p>プロキシを通過したリクエストの通信ログ。行をクリックするとプロンプトの詳細を表示します。</p>
     </header>
 
@@ -379,8 +379,8 @@ export const logsPage = `<!DOCTYPE html>
     var timer = null;
 
     // --- 料金表 (localStorage に保存) ---
-    var PRICING_KEY = 'ant2chat_pricing';
-    var USDJPY_KEY = 'ant2chat_usdjpy';
+    var PRICING_KEY = 'proxa_pricing';
+    var USDJPY_KEY = 'proxa_usdjpy';
     var DEFAULT_USDJPY = 160; // 為替レート未設定時のデフォルト (1 USD = 160 円)
     var pricing = loadPricing();
     var usdJpy = loadUsdJpy(); // 1 USD = usdJpy 円 (0 = 円換算なし)

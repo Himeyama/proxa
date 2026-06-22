@@ -3,7 +3,7 @@ export const usagePage = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ant2chat</title>
+  <title>proxa</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=BIZ+UDGothic:wght@400;700&family=Noto+Sans+JP:wght@700&family=Noto+Serif+JP:wght@400&display=swap" rel="stylesheet">
@@ -175,7 +175,7 @@ export const usagePage = `<!DOCTYPE html>
 <body>
   <main>
     <header>
-      <h1>ant2chat</h1>
+      <h1>proxa</h1>
       <p>Anthropic Messages API (<code>/v1/messages</code>)、OpenAI Responses API (<code>/v1/responses</code>)、OpenAI Chat Completions API (<code>/v1/chat/completions</code>)、Google Gemini API (<code>/v1beta/models/{model}:generateContent</code>) を受け取り、<br>上流のプロバイダー (Chat Completions / Responses API / Google Gemini など) へ変換して転送するプロキシサーバー。</p>
     </header>
 
@@ -302,28 +302,28 @@ export const usagePage = `<!DOCTYPE html>
     <section>
       <h2>使用例</h2>
       <pre><code><span class="comment"># Ollama (デフォルト)</span>
-ant2chat -u http://localhost:11434/v1 -m llama3.2
+proxa -u http://localhost:11434/v1 -m llama3.2
 
 <span class="comment"># OpenAI</span>
-ant2chat --provider openai --api-key sk-xxx --model gpt-4o
+proxa --provider openai --api-key sk-xxx --model gpt-4o
 
 <span class="comment"># OpenAI Responses API</span>
-ant2chat --provider responses --api-key sk-xxx --model gpt-5
+proxa --provider responses --api-key sk-xxx --model gpt-5
 
 <span class="comment"># OpenRouter</span>
-ant2chat --provider openrouter --api-key sk-or-xxx --model anthropic/claude-3.5-sonnet
+proxa --provider openrouter --api-key sk-or-xxx --model anthropic/claude-3.5-sonnet
 
 <span class="comment"># Google Gemini</span>
-ant2chat --provider gemini --api-key AIzaSy-xxx --model gemini-2.0-flash
+proxa --provider gemini --api-key AIzaSy-xxx --model gemini-2.0-flash
 
 <span class="comment"># Azure (プロバイダー明示)</span>
-ant2chat --provider azure --api-key &lt;key&gt; -u https://&lt;resource&gt;.openai.azure.com/openai/deployments/&lt;deployment&gt; -m gpt-4o
+proxa --provider azure --api-key &lt;key&gt; -u https://&lt;resource&gt;.openai.azure.com/openai/deployments/&lt;deployment&gt; -m gpt-4o
 
 <span class="comment"># Azure は URL 指定のみでも自動判定</span>
-ant2chat -u https://&lt;resource&gt;.openai.azure.com/openai/deployments/&lt;deployment&gt; -k &lt;key&gt; -m gpt-4o
+proxa -u https://&lt;resource&gt;.openai.azure.com/openai/deployments/&lt;deployment&gt; -k &lt;key&gt; -m gpt-4o
 
 <span class="comment"># Gemini は models/{model}:generateContent 形式の URL を直接指定可能</span>
-ant2chat -u https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent -k AIzaSy-xxx
+proxa -u https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent -k AIzaSy-xxx
 
 <span class="comment"># 受信側で Gemini 形式を使う例 (上流はどのプロバイダーでも可)</span>
 curl http://localhost:3000/v1beta/models/gemini-2.5-flash:generateContent \\

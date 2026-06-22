@@ -60,7 +60,7 @@ export async function handleChatCompletions(c: Context): Promise<Response> {
     return c.json(
       {
         error: {
-          message: 'No model specified. Provide a "model" field in the request, or start ant2chat with --model / CHAT_DEFAULT_MODEL.',
+          message: 'No model specified. Provide a "model" field in the request, or start proxa with --model / CHAT_DEFAULT_MODEL.',
           type: "invalid_request_error",
         },
       },

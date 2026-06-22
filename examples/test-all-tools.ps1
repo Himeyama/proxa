@@ -13,7 +13,7 @@ $allTools = ("{$raw}" | ConvertFrom-Json).tools
 $prompts = @{
     Agent            = "Launch a subagent to summarize the word 'hello'. Use description='summary task' and prompt='summarize hello'."
     AskUserQuestion  = "Ask the user which programming language they prefer. Use a single question with options 'Python', 'TypeScript', 'Go'."
-    Bash             = "Run the shell command: echo 'ant2chat tool test'"
+    Bash             = "Run the shell command: echo 'proxa tool test'"
     CronCreate       = "Schedule a cron job with cron='0 * * * *' and prompt='hourly health check'."
     CronDelete       = "Delete the cron job with id 'cron-001'."
     CronList         = "List all scheduled cron jobs."
@@ -60,7 +60,7 @@ $warnColor = "Yellow"
 $failColor = "Red"
 $skipColor = "DarkGray"
 
-Write-Host "`n==== ant2chat ツール全テスト ====" -ForegroundColor Cyan
+Write-Host "`n==== proxa ツール全テスト ====" -ForegroundColor Cyan
 Write-Host "対象: $($targets.Count) ツール  モデル: $Model  URL: $BaseUrl`n"
 
 foreach ($tool in $targets) {

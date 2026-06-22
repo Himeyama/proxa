@@ -1,4 +1,4 @@
-## ant2chat — Gemini の URL まとめ
+## proxa — Gemini の URL まとめ
 
 `--provider gemini`（`google` も同義）指定時、`-u/--url` で渡した URL は
 `@ai-sdk/google`（`createGoogleGenerativeAI`）の **baseURL** として使われ、SDK が必ず
@@ -40,7 +40,7 @@ SDK が組み立てた URL を破棄して**設定した URL へ verbatim 転送
 - 実体は `getProvider()` が `createGoogleGenerativeAI({ fetch })` に渡すインターセプター（別ポート不要）。
 - ストリーム判定の `?alt=sse` は転送先にも引き継がれる（非ストリーム → `<url>`、ストリーム → `<url>?alt=sse`）。
 - モデル名は URL に乗らない（転送先がモデルを決める前提）。`-u` は relay 時には使われない。
-- 例: `ant2chat --provider gemini --gemini-relay-url https://example.com/v1/baseurl/endpoint -k "$KEY"`
+- 例: `proxa --provider gemini --gemini-relay-url https://example.com/v1/baseurl/endpoint -k "$KEY"`
 
 ### Gemini モデルを「OpenAI 互換 URL」で使いたい場合
 `--provider gemini` ではなく **`--provider openai`** にして OpenAI 互換 URL を `-u` で渡す。
@@ -53,20 +53,20 @@ SDK が組み立てた URL を破棄して**設定した URL へ verbatim 転送
 ### コマンド例
 
     # 1) デフォルト (Google AI Studio)
-    ant2chat --provider gemini -k "$GEMINI_API_KEY"
+    proxa --provider gemini -k "$GEMINI_API_KEY"
 
     # 2) カスタム baseURL（Gemini 互換プロキシなど）
-    ant2chat --provider gemini -u https://my-proxy.example.com/v1beta -k "$KEY"
+    proxa --provider gemini -u https://my-proxy.example.com/v1beta -k "$KEY"
 
     # 3) モデル名付き URL（自動分解 → baseURL と model に分かれる）
-    ant2chat --provider gemini \
+    proxa --provider gemini \
       -u https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent \
       -k "$GEMINI_API_KEY"
 
     # 4) URL からプロバイダー自動判定（google と判定される）
-    ant2chat -u https://generativelanguage.googleapis.com/v1beta -k "$GEMINI_API_KEY"
+    proxa -u https://generativelanguage.googleapis.com/v1beta -k "$GEMINI_API_KEY"
 
     # 5) Gemini モデルを OpenAI 互換エンドポイントで使う（provider は openai）
-    ant2chat --provider openai \
+    proxa --provider openai \
       -u https://generativelanguage.googleapis.com/v1beta/openai \
       -k "$GEMINI_API_KEY"

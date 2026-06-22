@@ -54,10 +54,10 @@ const { values } = parseArgs({
 });
 
 if (values.help) {
-  console.log(`${C.BOLD}ant2chat${C.NC} — Anthropic Messages API → OpenAI Chat Completions proxy
+  console.log(`${C.BOLD}proxa${C.NC} — Anthropic / OpenAI / Gemini API 受信 → 上流プロバイダーへ変換・転送するプロキシ
 
 ${C.GREEN}Usage:${C.NC}
-  ant2chat [options]
+  proxa [options]
 
 ${C.GREEN}Options:${C.NC}
       ${C.CYAN}--provider${C.NC} ${C.CYAN_DIM}<name>${C.NC}   Upstream provider: ollama | openai | responses | openrouter | google | gemini | azure (default: ollama)

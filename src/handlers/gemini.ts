@@ -89,7 +89,7 @@ export async function handleGenerateContent(c: Context): Promise<Response> {
     return geminiError(
       c,
       400,
-      'No model specified. Provide a model in the URL path, or start ant2chat with --model / CHAT_DEFAULT_MODEL.'
+      'No model specified. Provide a model in the URL path, or start proxa with --model / CHAT_DEFAULT_MODEL.'
     );
   }
 

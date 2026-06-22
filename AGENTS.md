@@ -1,4 +1,4 @@
-# ant2chat
+# proxa
 
 Anthropic Messages API (`/v1/messages`)、OpenAI Responses API (`/v1/responses`)、OpenAI Chat Completions API (`/v1/chat/completions`)、Google Gemini API (`/v1beta/models/{model}:generateContent`) を受け取り、上流の Chat Completions API / Google Gemini API へ変換して転送するプロキシサーバー。
 
@@ -96,7 +96,7 @@ src/
 ## CLI オプション
 
 ```
-ant2chat [options]
+proxa [options]
 
 Options:
       --provider <name>   上流プロバイダー: ollama | openai | responses | openrouter | google | gemini | azure (デフォルト: ollama)
@@ -177,7 +177,7 @@ pnpm start      # ビルド済みファイルで起動
 
 ### クライアント認証 (上流へのキー中継)
 
-ant2chat 自身は受信リクエストを認証しない (将来の `--proxy-key` 拡張ポイント参照)。各 POST ハンドラーは上流へ渡す API キーを次の優先順位で決める。
+proxa 自身は受信リクエストを認証しない (将来の `--proxy-key` 拡張ポイント参照)。各 POST ハンドラーは上流へ渡す API キーを次の優先順位で決める。
 
 1. サーバー側キー (`-k` / `CHAT_API_KEY` / 各プロバイダー fallback) が設定済みなら、それを使い**クライアントのヘッダーは無視する**
 2. 未設定 (パススルー) ならクライアントのヘッダーから取り出す
@@ -324,8 +324,8 @@ Google Gemini API 互換の**受信**エンドポイント (`handleGenerateConte
 - **パススルー (ストリーミング) のトークン数**: Azure / OpenAI / OpenRouter などは `stream_options.include_usage` が指定されないとストリーム応答に `usage` を含めないため、`handlePassthrough` が転送前に `ensureStreamUsage()` で `include_usage: true` を補う (AI SDK 経由のパスは SDK が自動付与する)。これがないとパススルーのストリーミングは入力・出力トークンが常に 0 になる。クライアントが `stream_options` を明示済みならその指定を尊重する
 - **保持上限**: 直近 `MAX_LOGS` 件 (200) のリングバッファ。プロセス内のみで永続化しない。再起動でクリアされる
 - **閲覧ページ**: 一覧に Date / Model / Provider / Input / In cache / Output / Cost / Speed (= `outputTokens ÷ durationMs`、tok/s) を表示。横に長い場合は一覧テーブルを縮めず横スクロールさせる (`.table-wrap` が `overflow-x: auto`)。行をクリックすると概要・ヘッダー (折りたたみ)・プロンプト (ロール別)・レスポンス・生 JSON を右ペインに表示する。「更新」「自動更新 (3秒)」「料金表」「クリア」操作あり。一覧の下に合計 (入力・入力キャッシュ・出力・出力キャッシュ・コスト) を表示する
-- **料金表 / コスト**: 「料金表」ボタンでエディタを開き、行ごとに Provider・Model と単価 (Input / In cache / Output / Out cache、$ / 1M tokens) を入力する。設定はブラウザの `localStorage` (`ant2chat_pricing`) に保存しサーバーには送らない。各ログ行の Provider と Model が料金表行と一致 (大文字小文字を問わず) すれば、`(入力 − キャッシュ) × Input + キャッシュ × In cache + (出力 − 出力キャッシュ) × Output + 出力キャッシュ × Out cache` ÷ 1,000,000 でコストを算出する。一致する料金行がなければ `—`。コスト計算はすべてページ側 (クライアント) で行う
-- **為替レート / 円換算**: 料金表エディタに「1 USD = N JPY」の為替レート欄があり、`localStorage` (`ant2chat_usdjpy`) に保存する。レートを設定すると、コストを `$X.XXXXXX (JPY NNN)` 形式で表示する (NNN = `コスト × レート` を四捨五入した整数)。未設定時は `$X.XXXXXX` のみ。一覧・合計・詳細パネルすべてに共通の `fmtCost` で反映される
+- **料金表 / コスト**: 「料金表」ボタンでエディタを開き、行ごとに Provider・Model と単価 (Input / In cache / Output / Out cache、$ / 1M tokens) を入力する。設定はブラウザの `localStorage` (`proxa_pricing`) に保存しサーバーには送らない。各ログ行の Provider と Model が料金表行と一致 (大文字小文字を問わず) すれば、`(入力 − キャッシュ) × Input + キャッシュ × In cache + (出力 − 出力キャッシュ) × Output + 出力キャッシュ × Out cache` ÷ 1,000,000 でコストを算出する。一致する料金行がなければ `—`。コスト計算はすべてページ側 (クライアント) で行う
+- **為替レート / 円換算**: 料金表エディタに「1 USD = N JPY」の為替レート欄があり、`localStorage` (`proxa_usdjpy`) に保存する。レートを設定すると、コストを `$X.XXXXXX (JPY NNN)` 形式で表示する (NNN = `コスト × レート` を四捨五入した整数)。未設定時は `$X.XXXXXX` のみ。一覧・合計・詳細パネルすべてに共通の `fmtCost` で反映される
 - **エンドポイント**: ページ本体 `GET /logs`、データ取得 `GET /logs/data` (JSON 配列、新しい順)、クリア `DELETE /logs/data`
 
 ### OpenAI Responses API プロバイダー
@@ -376,7 +376,7 @@ google / gemini プロバイダーの認証ヘッダーは `--auth-type` (環境
 
 通常 `@ai-sdk/google` は baseURL から `{baseURL}/models/{model}:generateContent` (ストリーム時は `:streamGenerateContent?alt=sse`) を必ず組み立てるため、`/v1beta` 形式に当てはまらない任意のエンドポイントへは送れない。`--gemini-relay-url <url>` (または環境変数 `GEMINI_RELAY_URL`) を指定すると、この制約を回避して **設定した URL へ verbatim 転送** する。
 
-- 仕組み: `getProvider()` (`provider.ts`) が `createGoogleGenerativeAI` に **カスタム `fetch`** (`makeGeminiRelayFetch`) を渡す。SDK が組み立てた URL は破棄し、relay URL へ書き換えて転送する。別ポートのサーバーは立てず、プロセス内の fetch インターセプターとして中継する。フロー: `クライアント → ant2chat → gemini SDK → 中継 fetch → relay URL`
+- 仕組み: `getProvider()` (`provider.ts`) が `createGoogleGenerativeAI` に **カスタム `fetch`** (`makeGeminiRelayFetch`) を渡す。SDK が組み立てた URL は破棄し、relay URL へ書き換えて転送する。別ポートのサーバーは立てず、プロセス内の fetch インターセプターとして中継する。フロー: `クライアント → proxa → gemini SDK → 中継 fetch → relay URL`
 - クエリは引き継ぐため、ストリーミング判定の `?alt=sse` は relay URL 側にも付与される (例: 非ストリーム → `<relayURL>`、ストリーム → `<relayURL>?alt=sse`)。relay 先は `alt=sse` の有無でストリーム/非ストリームを判別できる
 - relay 時は SDK の URL 組み立てを無視するため `-u` / `customBaseURL` は使われない。モデル名も URL パスに乗らない (relay 先がモデルを決める前提)。リクエストボディ・ヘッダー (`--auth-type` で解決した認証ヘッダーなど) はそのまま転送される
 - relay 先が Google 認証を必要としない場合に備え、API キー未指定でも SDK が落ちないようプレースホルダ (`"relay"`) を補う。relay 先が Google 互換認証を要求するなら `-k` / `CHAT_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` で実キーを渡す
@@ -508,13 +508,13 @@ google / gemini プロバイダーの認証ヘッダーは `--auth-type` (環境
 ### GitHub から直接インストール（推奨）
 
 ```bash
-npm install -g github:himeyama/ant2chat
+npm install -g github:himeyama/proxa
 ```
 
 インストール時に自動でビルドされる。アンインストール:
 
 ```bash
-npm uninstall -g ant2chat
+npm uninstall -g proxa
 ```
 
 ### グローバルインストール（ローカルから）
@@ -526,16 +526,16 @@ pnpm build
 npm install -g .
 ```
 
-インストール後、どのディレクトリからでも `ant2chat` コマンドで起動できる:
+インストール後、どのディレクトリからでも `proxa` コマンドで起動できる:
 
 ```bash
-ant2chat
+proxa
 ```
 
 アンインストール:
 
 ```bash
-npm uninstall -g ant2chat
+npm uninstall -g proxa
 ```
 
 ### tarball として配布
@@ -545,16 +545,16 @@ pnpm build
 npm pack
 ```
 
-`ant2chat-0.1.0.tgz` が生成される。他のマシンへ配布してインストール:
+`proxa-0.1.0.tgz` が生成される。他のマシンへ配布してインストール:
 
 ```bash
-npm install -g ./ant2chat-0.1.0.tgz
+npm install -g ./proxa-0.1.0.tgz
 ```
 
 アンインストール:
 
 ```bash
-npm uninstall -g ant2chat
+npm uninstall -g proxa
 ```
 
 ### npm レジストリへ公開
@@ -569,13 +569,13 @@ npm publish
 公開後のインストール:
 
 ```bash
-npm install -g ant2chat
+npm install -g proxa
 ```
 
 アンインストール:
 
 ```bash
-npm uninstall -g ant2chat
+npm uninstall -g proxa
 ```
 
 ### pnpm 依存関係の追加時の注意
@@ -600,7 +600,7 @@ pnpm approve-builds esbuild@0.27.7
 
 ```bash
 # 直接渡す
-CHAT_API_KEY=sk-xxx CHAT_BASE_URL=https://api.example.com/v1 ant2chat
+CHAT_API_KEY=sk-xxx CHAT_BASE_URL=https://api.example.com/v1 proxa
 
 # ~/.bashrc や ~/.zshrc に追記して永続化
 export CHAT_API_KEY=sk-xxx
@@ -611,7 +611,7 @@ Windows の場合:
 
 ```powershell
 # 直接渡す
-$env:CHAT_API_KEY="sk-xxx"; $env:CHAT_BASE_URL="https://api.example.com/v1"; ant2chat
+$env:CHAT_API_KEY="sk-xxx"; $env:CHAT_BASE_URL="https://api.example.com/v1"; proxa
 
 # 永続化 (ユーザー環境変数)
 [System.Environment]::SetEnvironmentVariable("CHAT_API_KEY", "sk-xxx", "User")
