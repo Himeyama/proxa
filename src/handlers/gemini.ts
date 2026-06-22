@@ -1,5 +1,4 @@
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, streamText, type LanguageModelV1, type ToolSet } from "ai";
+import { generateText, streamText, type ToolSet } from "ai";
 import type { Context } from "hono";
 import { config } from "../config.js";
 import { tuiLog } from "../tui-log.js";
@@ -17,8 +16,8 @@ import { googleSearchTool } from "../tools/google-search.js";
 import { startLog, finishLog, redactHeaders, type LogToolCall } from "../log-store.js";
 import {
   isGoogleProvider,
-  isResponsesProvider,
   getProvider,
+  getLanguageModel,
   resolveModel,
   stripEmptyStringValues,
   extractUpstreamError,
@@ -155,11 +154,7 @@ export async function handleGenerateContent(c: Context): Promise<Response> {
     headers: redactHeaders(c.req.header()),
   });
 
-  const languageModel = (
-    isResponsesProvider(config.providerName)
-      ? (provider as ReturnType<typeof createOpenAI>).responses(model)
-      : provider(model)
-  ) as LanguageModelV1;
+  const languageModel = getLanguageModel(provider, model);
 
   const providerOptions = toProviderOptions(thinking, config.providerName, model);
   const stopSequences = generationConfig?.stopSequences;

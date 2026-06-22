@@ -45,7 +45,7 @@ Anthropic Messages API (`/v1/messages`)、OpenAI Responses API (`/v1/responses`)
      [geminiContentsToAnthropic / geminiToolsToAnthropic]  src/converters/from-gemini.ts
   │
   │  共通プロバイダー  src/handlers/provider.ts
-  │  Vercel AI SDK (ai / @ai-sdk/openai / @ai-sdk/google)
+  │  Vercel AI SDK (ai / @ai-sdk/openai / @ai-sdk/google / @openrouter/ai-sdk-provider)
   ▼
 上流エンドポイント (Chat Completions / Google Gemini API)
   │  レスポンス変換
@@ -317,8 +317,8 @@ Google Gemini API 互換の**受信**エンドポイント (`handleGenerateConte
 
 - **保存内容**: 1 リクエスト 1 エントリ。`timestamp` / `endpoint` / `provider` / `model` (`modelRequested`) / `stream` / `status` (`pending` → `ok` / `error`) / `inputTokens` / `inputCacheTokens` / `outputTokens` / `outputCacheTokens` / `durationMs` / `request` (プロンプト = system・messages・input・tools・tool_choice) / `headers` (受信 HTTP ヘッダー、認証系はマスク) / `response` (本文テキスト・ツール呼び出し) / `error`
 - **ヘッダー記録**: 受信リクエストの HTTP ヘッダーを `redactHeaders()` (`log-store.ts`) で正規化して `headers` に保存する。`authorization` / `x-api-key` / `x-goog-api-key` / `api-key` / `proxy-authorization` / `cookie` / `set-cookie` は値をマスクする (`Bearer` / `Basic` のスキームは残し、トークンは先頭4・末尾4のみ表示。8文字以下は全マスク)。それ以外のヘッダー (`user-agent`・`anthropic-version` など) は素のまま。Hono パスは `c.req.header()`、WebSocket パスは `index.ts` の upgrade リクエストの `req.headers` を渡す。閲覧ページの詳細パネルに折りたたみ「ヘッダー」セクションとして表示する
-- **キャッシュトークン**: `inputCacheTokens` は入力トークンのうちキャッシュから読み出した分。AI SDK 経由のパスは `extractCacheTokens()` / `resolveCacheTokens()` で `providerMetadata.openai.cachedPromptTokens` を、Chat Completions パススルーは `usage.prompt_tokens_details.cached_tokens` を読み取る。Gemini (google / gemini プロバイダー) は `cachedContentTokenCount` を `usage` にも `providerMetadata` にも載せない (`@ai-sdk/google` の zod スキーマが捨てる) ため、`getProvider()` がレスポンスを覗く fetch ラッパー (`makeGeminiCacheCaptureFetch`) を挟んで回収する。仕組み: レスポンスボディを `tee()` し、片側を背後で読んで `usageMetadata.cachedContentTokenCount` をリクエスト単位の `CacheCapture` に書き戻す (SSE / JSON 両対応、ツールループの複数ステップ分は加算)。もう片側は SDK へそのまま渡すためストリーミング挙動は変わらない。SSE / JSON の判定はまずレスポンスの `content-type` を見る (確実)。`content-type` が無い・不明な場合のみ本文の先頭 (`{` / `[` で JSON とみなす) で判定する。本文に `"data:"` が含まれるかでは判定しない — 非ストリーム JSON の出力テキストにデータ URI など `data:` が紛れると SSE と誤判定し、キャッシュ数を 0 と読み違えるため (chat completions + Gemini で input cache が 0 になる不具合の原因だった)。各ハンドラーは `getProvider(apiKey, capture)` で capture を渡し、値を読む前に `resolveCacheTokens()` が `Promise.all(capture.pending)` で背後の解析完了を待つ。出力キャッシュ (`outputCacheTokens`) を報告する上流は現状ないため常に 0 (フィールド・料金欄・合計のみ用意)
-- **トークン数の取得**: 非ストリームは上流レスポンス本文の `usage` から取得する。**ストリーミング**では OpenAI 系上流が usage を返すよう、`getProvider()` が `openai` / `responses` / `azure` プロバイダーに対して `createOpenAI` を `compatibility: "strict"` で生成する (strict のときだけ SDK が `stream_options: { include_usage: true }` を送り、上流が最終チャンクで usage を返す)。`ollama` / `openrouter` / `custom` は usage を自発的に返すため `compatible` のまま。上流が usage を返さないと AI SDK の `result.usage` は **NaN** になり、`JSON.stringify(NaN)` で `null` 化して `/logs` がトークン 0 (空欄) に見える。これを防ぐため各ハンドラーは `promptTokens` / `completionTokens` を `|| 0` で正規化してから SSE・レスポンス本文・`finishLog()` に渡す
+- **キャッシュトークン**: `inputCacheTokens` は入力トークンのうちキャッシュから読み出した分。AI SDK 経由のパスは `extractCacheTokens()` / `resolveCacheTokens()` で `providerMetadata.openai.cachedPromptTokens` (OpenAI 系) または `providerMetadata.openrouter.usage.promptTokensDetails.cachedTokens` (OpenRouter、usage accounting 有効時) を、Chat Completions パススルーは `usage.prompt_tokens_details.cached_tokens` を読み取る。Gemini (google / gemini プロバイダー) は `cachedContentTokenCount` を `usage` にも `providerMetadata` にも載せない (`@ai-sdk/google` の zod スキーマが捨てる) ため、`getProvider()` がレスポンスを覗く fetch ラッパー (`makeGeminiCacheCaptureFetch`) を挟んで回収する。仕組み: レスポンスボディを `tee()` し、片側を背後で読んで `usageMetadata.cachedContentTokenCount` をリクエスト単位の `CacheCapture` に書き戻す (SSE / JSON 両対応、ツールループの複数ステップ分は加算)。もう片側は SDK へそのまま渡すためストリーミング挙動は変わらない。SSE / JSON の判定はまずレスポンスの `content-type` を見る (確実)。`content-type` が無い・不明な場合のみ本文の先頭 (`{` / `[` で JSON とみなす) で判定する。本文に `"data:"` が含まれるかでは判定しない — 非ストリーム JSON の出力テキストにデータ URI など `data:` が紛れると SSE と誤判定し、キャッシュ数を 0 と読み違えるため (chat completions + Gemini で input cache が 0 になる不具合の原因だった)。各ハンドラーは `getProvider(apiKey, capture)` で capture を渡し、値を読む前に `resolveCacheTokens()` が `Promise.all(capture.pending)` で背後の解析完了を待つ。出力キャッシュ (`outputCacheTokens`) を報告する上流は現状ないため常に 0 (フィールド・料金欄・合計のみ用意)
+- **トークン数の取得**: 非ストリームは上流レスポンス本文の `usage` から取得する。**ストリーミング**では OpenAI 系上流が usage を返すよう、`getProvider()` が `openai` / `responses` / `azure` プロバイダーに対して `createOpenAI` を `compatibility: "strict"` で生成する (strict のときだけ SDK が `stream_options: { include_usage: true }` を送り、上流が最終チャンクで usage を返す)。`openrouter` も `createOpenRouter` を `compatibility: "strict"` + `usage: { include: true }` で生成して usage を回収する。`ollama` / `custom` は usage を自発的に返すため `compatible` のまま。上流が usage を返さないと AI SDK の `result.usage` は **NaN** になり、`JSON.stringify(NaN)` で `null` 化して `/logs` がトークン 0 (空欄) に見える。これを防ぐため各ハンドラーは `promptTokens` / `completionTokens` を `|| 0` で正規化してから SSE・レスポンス本文・`finishLog()` に渡す
 - **ライフサイクル**: 各ハンドラーがリクエスト開始時に `startLog()` でエントリを作成 (配列に登録) し、完了時に `finishLog()` でトークン数・所要時間・レスポンスを書き込む。`startLog` の返り値の参照を直接書き換えるため、ストリーミング中は `pending` として一覧に出る
 - **対象**: `/v1/messages`・`/v1/responses` (HTTP / WebSocket、`emitStreamingLoop` 内で記録)・`/v1/chat/completions`・`/v1beta/models/{model}:generateContent` の全パス。Chat Completions パススルーはレスポンスを解析しないため、SSE は `tee()` で 1 本を複製してバックグラウンドで `usage` / 本文を読み取り、非ストリーム JSON は本文をバッファしてから記録する (`consumePassthroughSSE` / `logPassthroughJson`)
 - **パススルー (ストリーミング) のトークン数**: Azure / OpenAI / OpenRouter などは `stream_options.include_usage` が指定されないとストリーム応答に `usage` を含めないため、`handlePassthrough` が転送前に `ensureStreamUsage()` で `include_usage: true` を補う (AI SDK 経由のパスは SDK が自動付与する)。これがないとパススルーのストリーミングは入力・出力トークンが常に 0 になる。クライアントが `stream_options` を明示済みならその指定を尊重する
@@ -334,7 +334,15 @@ Google Gemini API 互換の**受信**エンドポイント (`handleGenerateConte
 
 ### OpenRouter プロバイダー
 
-`--provider openrouter` 使用時、上流を OpenRouter の Chat Completions 互換エンドポイント (`https://openrouter.ai/api/v1`) に転送する。認証は bearer 形式で、`createOpenAI` のデフォルト経路をそのまま使う。モデル名は `anthropic/claude-3.5-sonnet` のように `<provider>/<model>` 形式で指定する (クライアントの `model` フィールドまたは `--model` / `CHAT_DEFAULT_MODEL` で指定)。
+`--provider openrouter` 使用時、上流を OpenRouter の Chat Completions 互換エンドポイント (`https://openrouter.ai/api/v1`) に転送する。認証は bearer 形式。モデル名は `anthropic/claude-3.5-sonnet` のように `<provider>/<model>` 形式で指定する (クライアントの `model` フィールドまたは `--model` / `CHAT_DEFAULT_MODEL` で指定)。
+
+`getProvider()` は OpenRouter を `@ai-sdk/openai` ではなく**専用プロバイダー `@openrouter/ai-sdk-provider` (`createOpenRouter`)** で生成する (`isOpenRouterProvider()` で判定)。理由は **プロンプトキャッシュ**:
+
+- **キャッシュブレークポイントの転送 (`cache_control`)**: OpenRouter のプロンプトキャッシュは上流モデルにより発動条件が異なる。OpenAI / Grok / DeepSeek は**自動**だが、**Anthropic Claude / Gemini は `cache_control: { type: "ephemeral" }` の明示ブレークポイントが無いとキャッシュが発動しない**。クライアント (Claude Code など) は `/v1/messages` の system・直近メッセージ・ツール結果に `cache_control` を付けて送ってくるが、`@ai-sdk/openai` 経由ではこれを上流へ送る口が無く、Claude/Gemini を OpenRouter で使うとキャッシュが一切効かなかった。`createOpenRouter` は message / パートの `providerOptions.openrouter.cacheControl` を上流リクエストの `cache_control` に変換できる。`toMessages()` (`shared.ts`) が Anthropic 各ブロックの `cache_control` を CoreMessage / パートの `providerOptions.openrouter.cacheControl` へ写す (system はメッセージレベル、テキスト/画像/tool_use/tool_result はパートレベル、画像なしで文字列に潰れる user メッセージはメッセージレベルに末尾ブロックの値を付与)。OpenRouter 以外のプロバイダーはこの namespace を無視するため、写像は常時行ってよい (プロキシは Anthropic へは送らない)
+- **system ブレークポイントの効果**: Anthropic のキャッシュ順序は `tools → system → messages` なので、system に付けた breakpoint は tools + system のプレフィックスをまとめてキャッシュする。ツール定義は AI SDK v4 の ToolSet 抽象では `cache_control` を表現できないが、system の breakpoint がツール定義もキャッシュ対象に含めるため実害は小さい
+- **usage accounting**: `getLanguageModel()` が OpenRouter モデルを `provider(model, { usage: { include: true } })` で生成し、キャッシュトークン数を `providerMetadata.openrouter.usage.promptTokensDetails.cachedTokens` に載せてもらう。`extractCacheTokens()` がこれを読み `/logs` の In cache に反映する
+- **`compatibility: "strict"`**: 本物の OpenRouter API のため strict にし、ストリーミングで `stream_options: { include_usage: true }` を送らせて usage チャンクを回収する
+- **パススルー (`/v1/chat/completions`)** は無関係: ボディ verbatim 転送のため `cache_control` はそのまま OpenRouter へ届く (専用プロバイダーは AI SDK 経由の `/v1/messages`・`/v1beta/models/{model}:…`・`/v1/chat/completions` の Gemini 変換パスに効く)
 
 ### Google / Gemini プロバイダーの制約
 
@@ -501,6 +509,7 @@ google / gemini プロバイダーの認証ヘッダーは `--auth-type` (環境
 | `ai` | `generateText` / `streamText` / `jsonSchema` |
 | `@ai-sdk/openai` | OpenAI 互換プロバイダー (`createOpenAI`) |
 | `@ai-sdk/google` | Google Gemini プロバイダー (`createGoogleGenerativeAI`) |
+| `@openrouter/ai-sdk-provider` | OpenRouter プロバイダー (`createOpenRouter`)。`cache_control` ブレークポイントと usage accounting を扱う |
 | `tsx` | 開発時 TypeScript 実行 |
 
 ## パッケージ化とインストール

@@ -1,21 +1,27 @@
 // Anthropic Messages API の型定義
 
-export type ContentBlockText = { type: "text"; text: string };
+// プロンプトキャッシュのブレークポイント。system / メッセージ内の各ブロック / ツール定義に付く。
+export type CacheControl = { type: string };
+
+export type ContentBlockText = { type: "text"; text: string; cache_control?: CacheControl };
 export type ContentBlockImage = {
   type: "image";
   source: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string };
+  cache_control?: CacheControl;
 };
 export type ContentBlockToolUse = {
   type: "tool_use";
   id: string;
   name: string;
   input: unknown;
+  cache_control?: CacheControl;
 };
 export type ContentBlockToolResult = {
   type: "tool_result";
   tool_use_id: string;
   content: string | ContentBlockText[];
   is_error?: boolean;
+  cache_control?: CacheControl;
 };
 export type ContentBlockThinking = { type: "thinking"; thinking: string; signature?: string };
 export type ContentBlockRedactedThinking = { type: "redacted_thinking"; data: string };
@@ -46,7 +52,7 @@ export type AnthropicToolChoice =
   | { type: "tool"; name: string }
   | { type: "none" };
 
-export type SystemBlock = { type: "text"; text: string; cache_control?: { type: string } };
+export type SystemBlock = { type: "text"; text: string; cache_control?: CacheControl };
 
 export type AnthropicThinkingConfig =
   | { type: "enabled"; budget_tokens: number }

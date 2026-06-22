@@ -1,11 +1,16 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModelV1 } from "ai";
 import { config } from "../config.js";
 import { makeGeminiCacheFetch } from "../gemini-cache.js";
 
 export function isGoogleProvider(providerName: string): boolean {
   return providerName === "google" || providerName === "gemini";
+}
+
+export function isOpenRouterProvider(providerName: string): boolean {
+  return providerName === "openrouter";
 }
 
 export function isResponsesProvider(providerName: string): boolean {
@@ -164,10 +169,17 @@ export function getProvider(apiKey: string, capture?: CacheCapture) {
     // 既定 (x-goog-api-key)。relay 時に中継先が Google 認証を要求しないケースでもキー欠如で SDK が落ちないようプレースホルダを補う。
     return createGoogleGenerativeAI({ apiKey: geminiRelayURL ? (apiKey || "relay") : apiKey, ...urlOpts });
   }
+  // OpenRouter 専用プロバイダー。@ai-sdk/openai では表現できない cache_control ブレークポイント
+  // (providerOptions.openrouter.cacheControl) を上流リクエストへ転送できる。Anthropic / Gemini モデルは
+  // この明示ブレークポイントが無いとプロンプトキャッシュが発動しないため、OpenRouter は専用経路にする。
+  // compatibility: "strict" で stream_options.include_usage を送り、ストリーミングでも usage を回収する。
+  if (isOpenRouterProvider(providerName)) {
+    return createOpenRouter({ apiKey, baseURL, compatibility: "strict" });
+  }
   // OpenAI 系 (openai / responses / azure) は strict 互換にする。strict のときだけ SDK が
   // streaming で stream_options: { include_usage: true } を送り、上流が usage チャンクを返す。
   // compatible だと usage が要求されず、ストリーミングの result.usage が NaN になり
-  // (JSON 化で null → /logs でトークン 0 表示)。ollama / openrouter / custom は usage を
+  // (JSON 化で null → /logs でトークン 0 表示)。ollama / custom は usage を
   // 自発的に返すため compatible のままにして、未知の上流へ余計なフィールドを送らない。
   const compatibility: "strict" | "compatible" =
     providerName === "openai" || providerName === "responses" || providerName === "azure"
@@ -191,11 +203,17 @@ export function resolveModel(requestedModel: string): string {
 }
 
 export function getLanguageModel(provider: ReturnType<typeof getProvider>, model: string): LanguageModelV1 {
-  return (
-    isResponsesProvider(config.providerName)
-      ? (provider as ReturnType<typeof createOpenAI>).responses(model)
-      : provider(model)
-  ) as LanguageModelV1;
+  if (isResponsesProvider(config.providerName)) {
+    return (provider as ReturnType<typeof createOpenAI>).responses(model) as LanguageModelV1;
+  }
+  // OpenRouter は usage accounting を有効化して、キャッシュトークン数 (cachedTokens) を
+  // providerMetadata.openrouter.usage に載せてもらう (/logs の In cache 集計に使う)。
+  if (isOpenRouterProvider(config.providerName)) {
+    return (provider as ReturnType<typeof createOpenRouter>)(model, {
+      usage: { include: true },
+    }) as LanguageModelV1;
+  }
+  return (provider as (model: string) => LanguageModelV1)(model);
 }
 
 export function stripEmptyStringValues(args: unknown): Record<string, unknown> {
@@ -232,6 +250,7 @@ export function makeId(prefix: string): string {
 
 // AI SDK の providerMetadata からキャッシュトークン数を抽出する。
 // OpenAI 系: providerMetadata.openai.cachedPromptTokens (prompt/input_tokens_details.cached_tokens 由来)。
+// OpenRouter: providerMetadata.openrouter.usage.promptTokensDetails.cachedTokens (usage accounting 有効時)。
 // Gemini: providerMetadata に載らないため fetch 層で回収した capture をフォールバックに使う。
 // 出力キャッシュを報告する上流は現状ないため 0。
 export function extractCacheTokens(providerMetadata: unknown, capture?: CacheCapture): {
@@ -239,9 +258,16 @@ export function extractCacheTokens(providerMetadata: unknown, capture?: CacheCap
   outputCacheTokens: number;
 } {
   const meta = providerMetadata as Record<string, Record<string, unknown> | undefined> | undefined;
-  const openai = meta?.openai;
-  const cached = openai?.cachedPromptTokens;
-  const fromMetadata = typeof cached === "number" ? cached : 0;
+  const openaiCached = meta?.openai?.cachedPromptTokens;
+  const orCached = (
+    meta?.openrouter?.usage as { promptTokensDetails?: { cachedTokens?: number } } | undefined
+  )?.promptTokensDetails?.cachedTokens;
+  const fromMetadata =
+    typeof openaiCached === "number"
+      ? openaiCached
+      : typeof orCached === "number"
+        ? orCached
+        : 0;
   return {
     inputCacheTokens: fromMetadata || (capture?.inputCacheTokens ?? 0),
     outputCacheTokens: 0,

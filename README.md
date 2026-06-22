@@ -197,7 +197,7 @@ proxa 自身は受信リクエストを認証しない。上流へ渡す API キ
 - 「料金表」ボタンで単価を設定できる。行ごとに Provider・Model と単価 (Input / In cache / Output / Out cache、100 万トークンあたりの $) を入力すると、Provider と Model が一致 (大文字小文字を問わず) するログのコストを自動計算する。一致する料金がなければ `—`。設定はブラウザに保存される (サーバーには送らない)
 - 料金表に「1 USD = N JPY」の為替レートを設定すると、コストを `$X.XXXXXX (JPY NNN)` 形式で円換算表示する (未設定なら $ のみ)
 - 入力トークンにはキャッシュ分が含まれる。コストはキャッシュ分を入力単価から差し引き、入力キャッシュ単価で計算する
-- 入力キャッシュは OpenAI 系 (`cached_tokens`) に加え、Gemini (`cachedContentTokenCount`) も記録する。Gemini はキャッシュ数を SDK が捨てるため、上流レスポンスを覗いて回収している (ストリーミング・非ストリーミング両対応)。SSE / JSON の判定はレスポンスの `content-type` で行うため、非ストリーム応答の本文に `data:` (データ URI など) が含まれていても入力キャッシュを正しく記録する
+- 入力キャッシュは OpenAI 系 (`cached_tokens`) に加え、OpenRouter (`promptTokensDetails.cachedTokens`)・Gemini (`cachedContentTokenCount`) も記録する。Gemini はキャッシュ数を SDK が捨てるため、上流レスポンスを覗いて回収している (ストリーミング・非ストリーミング両対応)。SSE / JSON の判定はレスポンスの `content-type` で行うため、非ストリーム応答の本文に `data:` (データ URI など) が含まれていても入力キャッシュを正しく記録する
 - ストリーミングでも上流が usage を返すよう、OpenAI 系プロバイダー (`openai` / `responses` / `azure`) には `stream_options: { include_usage: true }` を要求する (`compatibility: "strict"`)。これがないと上流が usage を返さず、トークンが 0 (空欄) と表示される。usage を返さない上流に対しては 0 として記録する
 - 一覧が横に長いときはテーブルを横スクロールできる
 - 行をクリックすると、概要・受信ヘッダー (折りたたみ)・送信したプロンプト (ロール別)・レスポンス本文・生 JSON を表示する
@@ -286,6 +286,8 @@ curl -N 'http://localhost:3000/v1beta/models/llama3.2:streamGenerateContent?alt=
 ### OpenRouter プロバイダー
 
 `--provider openrouter` を指定すると、上流の転送先が OpenRouter の Chat Completions 互換エンドポイント (`https://openrouter.ai/api/v1`) になる。認証は bearer 形式。モデル名は `anthropic/claude-3.5-sonnet` のように `<provider>/<model>` 形式で指定する。
+
+OpenRouter は専用プロバイダー `@openrouter/ai-sdk-provider` 経由で転送し、**プロンプトキャッシュ**に対応する。OpenRouter のキャッシュは上流モデルにより条件が異なり、Anthropic Claude / Gemini は `cache_control` の明示ブレークポイントが必須 (OpenAI / DeepSeek などは自動)。クライアント (Claude Code など) が `/v1/messages` で送る `cache_control` を、proxa が上流リクエストの `cache_control` へ転送するため、OpenRouter 上の Claude / Gemini でもキャッシュが効く。キャッシュトークン数は usage accounting で回収して `/logs` の In cache に反映する。
 
 ### Google / Gemini プロバイダーの制約
 
@@ -454,7 +456,7 @@ pnpm start    # ビルド済みで起動
      [geminiContentsToAnthropic / geminiToolsToAnthropic]  src/converters/from-gemini.ts
   │
   │  共通プロバイダー  src/handlers/provider.ts
-  │  Vercel AI SDK (ai / @ai-sdk/openai / @ai-sdk/google)
+  │  Vercel AI SDK (ai / @ai-sdk/openai / @ai-sdk/google / @openrouter/ai-sdk-provider)
   ▼
 上流エンドポイント
   ├─ Chat Completions 互換: ollama / openai / responses / openrouter / azure (パススルー)

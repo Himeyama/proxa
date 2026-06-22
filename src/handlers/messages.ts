@@ -1,5 +1,4 @@
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, streamText, type JSONValue, type LanguageModelV1, type ToolSet } from "ai";
+import { generateText, streamText, type JSONValue, type ToolSet } from "ai";
 import type { Context } from "hono";
 import { config } from "../config.js";
 import { tuiLog } from "../tui-log.js";
@@ -13,6 +12,7 @@ import {
   isGoogleProvider,
   isResponsesProvider,
   getProvider,
+  getLanguageModel,
   resolveModel,
   stripEmptyStringValues,
   extractUpstreamError,
@@ -193,11 +193,7 @@ export async function handleMessages(c: Context): Promise<Response> {
   const salvageEnabled = isGoogleProvider(config.providerName);
   const knownToolNames = buildKnownToolNames(toolNames);
 
-  const languageModel = (
-    isResponsesProvider(config.providerName)
-      ? (provider as ReturnType<typeof createOpenAI>).responses(model)
-      : provider(model)
-  ) as LanguageModelV1;
+  const languageModel = getLanguageModel(provider, model);
 
   const providerOptions = toProviderOptions(body.thinking, config.providerName, model);
 

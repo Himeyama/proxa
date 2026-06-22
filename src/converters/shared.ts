@@ -3,18 +3,40 @@ import { config } from "../config.js";
 import type {
   AnthropicMessage,
   AnthropicToolChoice,
+  CacheControl,
   ContentBlock,
   ContentBlockImage,
   ContentBlockText,
   SystemBlock,
 } from "../types/anthropic.js";
 
+// Anthropic の cache_control を CoreMessage / パートの providerOptions へ写すための spread。
+// OpenRouter プロバイダー (@openrouter/ai-sdk-provider) は providerOptions.openrouter.cacheControl を
+// 上流リクエストの cache_control に変換する。OpenRouter 以外のプロバイダーはこの namespace を無視するため
+// 常に付与して問題ない (プロキシは Anthropic へは送らない)。
+function cacheOpts(
+  cc: CacheControl | undefined
+): { providerOptions: { openrouter: { cacheControl: CacheControl } } } | Record<string, never> {
+  return cc ? { providerOptions: { openrouter: { cacheControl: cc } } } : {};
+}
+
+// ブロック配列のうち、末尾に最も近い cache_control を返す。
+// プロンプトキャッシュのブレークポイントは「そこまでのプレフィックス」を指すため、
+// 文字列へ潰れる (= 単一パートになる) ケースでは末尾の境界を採用する。
+function lastCacheControl(blocks: Array<{ cache_control?: CacheControl }>): CacheControl | undefined {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].cache_control) return blocks[i].cache_control;
+  }
+  return undefined;
+}
+
 function imageBlockToPart(block: ContentBlockImage): ImagePart {
   const { source } = block;
-  if (source.type === "base64") {
-    return { type: "image", image: source.data, mimeType: source.media_type };
-  }
-  return { type: "image", image: new URL(source.url) };
+  const base: ImagePart =
+    source.type === "base64"
+      ? { type: "image", image: source.data, mimeType: source.media_type }
+      : { type: "image", image: new URL(source.url) };
+  return { ...base, ...cacheOpts(block.cache_control) };
 }
 
 function userBlocksToParts(blocks: ContentBlock[]): string | Array<TextPart | ImagePart> {
@@ -28,7 +50,7 @@ function userBlocksToParts(blocks: ContentBlock[]): string | Array<TextPart | Im
   const parts: Array<TextPart | ImagePart> = [];
   for (const block of blocks) {
     if (block.type === "text") {
-      parts.push({ type: "text", text: block.text });
+      parts.push({ type: "text", text: block.text, ...cacheOpts(block.cache_control) });
     } else if (block.type === "image") {
       parts.push(imageBlockToPart(block));
     }
@@ -213,7 +235,12 @@ export function toMessages(
 
   if (system) {
     const systemContent = stripSystemLines(systemToString(system));
-    if (systemContent) result.push({ role: "system", content: systemContent });
+    if (systemContent) {
+      // system のキャッシュブレークポイント。Anthropic のキャッシュ順序は tools → system → messages
+      // なので、system に付けた breakpoint は tools + system のプレフィックスをまとめてキャッシュする。
+      const sysCache = Array.isArray(system) ? lastCacheControl(system) : undefined;
+      result.push({ role: "system", content: systemContent, ...cacheOpts(sysCache) });
+    }
   }
 
   const effectiveMessages = options?.flattenToolHistory
@@ -251,13 +278,14 @@ export function toMessages(
       > = [];
       for (const block of content) {
         if (block.type === "text") {
-          parts.push({ type: "text", text: block.text });
+          parts.push({ type: "text", text: block.text, ...cacheOpts(block.cache_control) });
         } else if (block.type === "tool_use") {
           parts.push({
             type: "tool-call",
             toolCallId: block.id,
             toolName: sanitizeToolName(block.name),
             args: block.input ?? {},
+            ...cacheOpts(block.cache_control),
           });
         }
         // thinking / redacted_thinking はスキップ（upstream に送らない）
@@ -286,13 +314,21 @@ export function toMessages(
             toolName: toolNameById.get(tr.tool_use_id) ?? tr.tool_use_id,
             result: toolResultContentToString(tr.content),
             isError: tr.is_error,
+            ...cacheOpts(tr.cache_control),
           };
         }),
       });
     }
 
     if (textBlocks.length > 0) {
-      result.push({ role: "user", content: userBlocksToParts(textBlocks as ContentBlock[]) });
+      const userContent = userBlocksToParts(textBlocks as ContentBlock[]);
+      // 文字列に潰れた場合 (画像なし) はパート単位の providerOptions を持てないため、
+      // 末尾ブロックの cache_control をメッセージレベルに付ける (provider が単一パートへ適用する)。
+      const msgCache =
+        typeof userContent === "string"
+          ? lastCacheControl(textBlocks as Array<{ cache_control?: CacheControl }>)
+          : undefined;
+      result.push({ role: "user", content: userContent, ...cacheOpts(msgCache) });
     }
   }
 
