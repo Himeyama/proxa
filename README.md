@@ -73,6 +73,7 @@ Options:
       --no-gemini-cache       明示キャッシュを無効化する
       --gemini-cache-ttl <s>  明示キャッシュの TTL (秒)。デフォルト: 600
       --strip-system-line <text>  受信したシステムプロンプトのうち <text> を含む行を除去する (大文字小文字を区別する部分一致)。カンマ区切りで複数パターン指定可、繰り返し指定も可
+      --prompt-cache-key      openai/azure/responses パススルー限定。クライアントが prompt_cache_key を未指定のとき、system + tools のハッシュから安定したキーを補ってルーティングを固定し、プロンプトキャッシュのヒット率を上げる。キーは /logs に表示する
   -h, --help              ヘルプを表示
 ```
 
@@ -103,6 +104,7 @@ CLI オプションで上書き可能。
 | `GEMINI_CACHE_TTL` | `--gemini-cache-ttl` のフォールバック。明示キャッシュの TTL (秒)。デフォルト: 600 |
 | `GEMINI_CACHE_DEBUG` | `1` / `true` で明示キャッシュの診断ログを stderr に出す。プレフィックスが前リクエストと食い違う箇所 (途中のメッセージ変化・system/tools 変化) を検出し、キャッシュ不発の原因を切り分ける |
 | `STRIP_SYSTEM_LINE` | `--strip-system-line` のフォールバック。カンマ区切りで複数パターン可。指定文字列を含むシステムプロンプト行を除去 |
+| `PROMPT_CACHE_KEY` | `--prompt-cache-key` のフォールバック。`1` / `true` で openai/azure/responses パススルーに安定した `prompt_cache_key` を補い、プロンプトキャッシュのヒット率を上げる |
 
 ### 設定方法
 
@@ -200,6 +202,7 @@ proxa 自身は受信リクエストを認証しない。上流へ渡す API キ
 - 上流から得られる入力トークン (`inputTokens`) にはキャッシュ分が含まれるが、一覧・合計・詳細の入力トークン表示はキャッシュ分を差し引いた値にする。コストもキャッシュ分を入力単価から差し引き、入力キャッシュ単価で計算する
 - 入力キャッシュは OpenAI 系 (`cached_tokens`) に加え、OpenRouter (`promptTokensDetails.cachedTokens`)・Gemini (`cachedContentTokenCount`) も記録する。Gemini はキャッシュ数を SDK が捨てるため、上流レスポンスを覗いて回収している (ストリーミング・非ストリーミング両対応)。SSE / JSON の判定はレスポンスの `content-type` で行うため、非ストリーム応答の本文に `data:` (データ URI など) が含まれていても入力キャッシュを正しく記録する
 - ストリーミングでも上流が usage を返すよう、OpenAI 系プロバイダー (`openai` / `responses` / `azure`) には `stream_options: { include_usage: true }` を要求する (`compatibility: "strict"`)。これがないと上流が usage を返さず、トークンが 0 (空欄) と表示される。usage を返さない上流に対しては 0 として記録する
+- `--prompt-cache-key` 有効時は、openai/azure/responses パススルーで補った (またはクライアントが指定した) `prompt_cache_key` を詳細パネルの「Cache key」に表示する。連続リクエストでキーが一定かを見れば、system / tools が毎ターン揺れていないか確認できる
 - 一覧が横に長いときはテーブルを横スクロールできる
 - 行をクリックすると、概要・受信ヘッダー (折りたたみ)・送信したプロンプト (ロール別)・レスポンス本文・生 JSON を表示する
 - 受信リクエストの HTTP ヘッダーも記録する。`Authorization` / `x-api-key` / `x-goog-api-key` / `api-key` / `Cookie` などの認証・機密系は値をマスクして表示する (スキームと先頭・末尾の数文字のみ)。それ以外のヘッダーはそのまま表示する
@@ -410,6 +413,22 @@ MIN_TOOLS=1 proxa
 - 組み込み Web 検索 (`google_search` / `WebSearch`) はサーバー側で注入されるツールのため `--min` の影響を受けない (無効化は `--no-search`)
 - 全エンドポイント (`/v1/messages`・`/v1/responses`・`/v1/chat/completions`・`/v1beta/models/{model}:…`) に適用される
 - `/logs` の `request.tools` は**除外後**(実際に上流へ送ったツール)を表示する
+
+### プロンプトキャッシュキー (`--prompt-cache-key`)
+
+OpenAI / Azure のプロンプトキャッシュは messages + tools の先頭トークン列が一致すると効くが、実際のヒット率は「同じプレフィックスのリクエストが同じバックエンドへルーティングされるか」に依存する。安定キー (`prompt_cache_key`) が無いと負荷分散でリクエストが散り、同じプレフィックスでもヒットが確率的になる (Azure で「3 割くらいしかキャッシュされない」といった症状の主因)。`--prompt-cache-key` を付けると、Chat Completions パススルー時に安定キーを補ってルーティングを固定する。
+
+```bash
+proxa --provider azure -u https://xxx.openai.azure.com/openai/deployments/gpt-4o --prompt-cache-key
+# 環境変数でも指定可
+PROMPT_CACHE_KEY=1 proxa --provider openai
+```
+
+- 対象は `openai` / `azure` / `responses` の `/v1/chat/completions` **パススルー**のみ (Gemini 変換パスや他プロバイダーには効かない)
+- キーは **system + tools** のハッシュ (`proxa-<hex16>`)。メッセージ本文を含めないため、同一会話を通じて値が一定になりルーティングが安定する
+- クライアントが既に `prompt_cache_key` を送っていればその値を尊重する
+- 補った (またはクライアント指定の) キーは `/logs` 詳細パネルの「Cache key」に表示される。連続リクエストでキーが一定なら system / tools は揺れていない
+- 効かない場合は `/logs` で先頭プロンプト (`request.system` / 先頭メッセージ) が前ターンと一致しているかも確認する。プレフィックスが毎ターン書き換わっていると、キーを固定してもキャッシュは効かない
 
 ## 開発
 

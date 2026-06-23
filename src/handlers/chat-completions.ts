@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { generateText, streamText } from "ai";
 import type { Context } from "hono";
 import { config } from "../config.js";
@@ -223,6 +224,37 @@ function normalizeMaxTokensForOpenAI(body: ChatCompletionsRequest): void {
   }
 }
 
+// system / developer メッセージ + tools の安定プレフィックスからルーティング用のキャッシュキーを導出する。
+// OpenAI/Azure のプロンプトキャッシュは、同一プレフィックスのリクエストが同じバックエンドへ
+// ルーティングされたときにヒットする。prompt_cache_key を固定するとルーティングが安定し、ヒット率が上がる。
+// メッセージ本文 (毎ターン伸びる) ではなく system+tools のみを対象にすることで、会話を通じて値が一定になる。
+function computePromptCacheKey(body: ChatCompletionsRequest): string {
+  const systemParts = (body.messages ?? [])
+    .filter((m) => m.role === "system" || m.role === "developer")
+    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)));
+  const toolsPart = body.tools ? JSON.stringify(body.tools) : "";
+  const h = createHash("sha256");
+  h.update(systemParts.join("\n"));
+  h.update(" ");
+  h.update(toolsPart);
+  return "proxa-" + h.digest("hex").slice(0, 16);
+}
+
+// OpenAI/Azure 系パススルーで prompt_cache_key を解決し、ログへ記録する。
+// クライアントが既に指定していればそれを尊重・記録する。未指定かつ --prompt-cache-key 有効時のみ
+// system+tools のハッシュを導出して body へ補い、ログへ記録する。
+function applyPromptCacheKey(body: ChatCompletionsRequest, logEntry: LogEntry): void {
+  if (!OPENAI_FAMILY_PROVIDERS.has(config.providerName)) return;
+  if (body.prompt_cache_key != null) {
+    logEntry.cacheKey = body.prompt_cache_key;
+    return;
+  }
+  if (!config.promptCacheKey) return;
+  const key = computePromptCacheKey(body);
+  body.prompt_cache_key = key;
+  logEntry.cacheKey = key;
+}
+
 // パススルーのストリーミング時、上流に usage を出力させる。
 // OpenAI / Azure / OpenRouter などは stream_options.include_usage を指定しないと
 // ストリーム応答の各チャンクに usage を含めず、/logs のトークン数が常に 0 になる。
@@ -253,6 +285,7 @@ function stripSystemFromMessages(messages: ChatMessage[] | undefined): void {
 async function handlePassthrough(body: ChatCompletionsRequest, apiKey: string, logEntry: LogEntry): Promise<Response> {
   normalizeMaxTokensForOpenAI(body);
   ensureStreamUsage(body);
+  applyPromptCacheKey(body, logEntry);
   const url = `${config.baseURL.replace(/\/+$/, "")}/chat/completions`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {

@@ -56,6 +56,8 @@ export interface ChatCompletionsRequest {
   stop?: string | string[];
   tools?: ChatTool[];
   tool_choice?: ChatToolChoice;
+  /** OpenAI/Azure のプロンプトキャッシュのルーティングキー (同一プレフィックスを同じバックエンドへ寄せる) */
+  prompt_cache_key?: string;
 }
 
 export type ChatFinishReason = "stop" | "length" | "tool_calls" | "content_filter" | null;

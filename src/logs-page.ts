@@ -475,6 +475,7 @@ export const logsPage = `<!DOCTYPE html>
       add('Provider', e.provider);
       add('Model', e.modelRequested ? (e.modelRequested + ' → ' + e.model) : e.model);
       add('Stream', e.stream ? 'true' : 'false');
+      if (e.cacheKey) add('Cache key', e.cacheKey);
       add('Input', fmtNum(inputExclCache(e)) + (e.inputCacheTokens ? ' (cache ' + fmtNum(e.inputCacheTokens) + ')' : ''));
       add('Output', fmtNum(e.outputTokens) + (e.outputCacheTokens ? ' (cache ' + fmtNum(e.outputCacheTokens) + ')' : ''));
       var dCost = costOf(e);

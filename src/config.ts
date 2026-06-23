@@ -48,6 +48,7 @@ const { values } = parseArgs({
     "no-gemini-cache": { type: "boolean" },
     "gemini-cache-ttl": { type: "string" },
     "strip-system-line": { type: "string", multiple: true },
+    "prompt-cache-key": { type: "boolean" },
     help:        { type: "boolean", short: "h" },
   },
   strict: false,
@@ -86,6 +87,10 @@ ${C.GREEN}Options:${C.NC}
       ${C.CYAN}--strip-system-line${C.NC} ${C.CYAN_DIM}<text>${C.NC}  Remove any line of the incoming system prompt that contains <text>
                                   (case-sensitive substring match). Comma-separated for multiple patterns;
                                   also repeatable
+      ${C.CYAN}--prompt-cache-key${C.NC}      For openai/azure/responses passthrough: inject a stable prompt_cache_key
+                              (hash of system + tools) when the client did not set one, so identical
+                              prefixes route to the same backend and prompt caching hits more reliably.
+                              The key is shown in /logs (client-set keys are also logged)
   ${C.CYAN}-h${C.NC}, ${C.CYAN}--help${C.NC}              Show this help
 
 ${C.GREEN}Environment variables${C.NC} (overridden by CLI options):
@@ -105,6 +110,7 @@ ${C.GREEN}Environment variables${C.NC} (overridden by CLI options):
   ${C.CYAN}GEMINI_CACHE${C.NC}                   For --provider google/gemini: explicit caching (enabled by default; set to "0" or "false" to disable)
   ${C.CYAN}GEMINI_CACHE_TTL${C.NC}               Explicit cache TTL in seconds (default: 600)
   ${C.CYAN}STRIP_SYSTEM_LINE${C.NC}              Remove any system-prompt line containing this text (comma-separated for multiple patterns)
+  ${C.CYAN}PROMPT_CACHE_KEY${C.NC}               For openai/azure/responses passthrough: inject a stable prompt_cache_key (set to "1" or "true")
 `);
   process.exit(0);
 }
@@ -255,4 +261,6 @@ export const config = {
   // 前リクエストとプレフィックスを比較し「追記のみ / 途中変化 / system・tools 変化」を stderr に出す。
   geminiCacheDebug: process.env.GEMINI_CACHE_DEBUG === "1" || process.env.GEMINI_CACHE_DEBUG === "true",
   stripSystemLine: resolveStripSystemLine(),
+  // openai/azure/responses パススルーで安定した prompt_cache_key を補う (ルーティングを固定しキャッシュヒット率を上げる)。
+  promptCacheKey: Boolean(values["prompt-cache-key"]) || process.env.PROMPT_CACHE_KEY === "1" || process.env.PROMPT_CACHE_KEY === "true",
 };

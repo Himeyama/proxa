@@ -39,6 +39,8 @@ export interface LogEntry {
   request: unknown;
   /** 受信リクエストの HTTP ヘッダー (認証系はマスク済み) */
   headers?: Record<string, string>;
+  /** プロンプトキャッシュのルーティングキー (prompt_cache_key)。クライアント指定 or proxa が導出した値 */
+  cacheKey?: string;
   response?: LogResponse;
   error?: string;
 }
