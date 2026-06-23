@@ -4,6 +4,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModelV1 } from "ai";
 import { config } from "../config.js";
 import { makeGeminiCacheFetch } from "../gemini-cache.js";
+import { makePromptCacheKeyFetch } from "../prompt-cache-key.js";
 
 export function isGoogleProvider(providerName: string): boolean {
   return providerName === "google" || providerName === "gemini";
@@ -28,6 +29,9 @@ export interface CacheCapture {
   inputCacheTokens: number;
   // 進行中のレスポンス解析。値を読む前に await する。
   pending: Array<Promise<void>>;
+  // --prompt-cache-key 時、fetch 層で解決した prompt_cache_key (クライアント指定 or 導出)。
+  // ハンドラーが /logs (LogEntry.cacheKey) へ記録する。
+  promptCacheKey?: string;
 }
 
 export function createCacheCapture(): CacheCapture {
@@ -185,15 +189,22 @@ export function getProvider(apiKey: string, capture?: CacheCapture) {
     providerName === "openai" || providerName === "responses" || providerName === "azure"
       ? "strict"
       : "compatible";
+  // --prompt-cache-key 時、上流ボディに prompt_cache_key を補う fetch ラッパーを挟む。
+  // SDK は prompt_cache_key を素通ししないため fetch 層で注入する (openai/azure/responses 限定)。
+  const wantPromptCacheKey =
+    config.promptCacheKey &&
+    (providerName === "openai" || providerName === "responses" || providerName === "azure");
+  const fetchImpl = wantPromptCacheKey ? makePromptCacheKeyFetch(globalThis.fetch, capture) : undefined;
   if (authType === "api-key") {
     return createOpenAI({
       apiKey: "no-key",
       baseURL,
       headers: { "api-key": apiKey },
       compatibility,
+      ...(fetchImpl ? { fetch: fetchImpl } : {}),
     });
   }
-  return createOpenAI({ apiKey, baseURL, compatibility });
+  return createOpenAI({ apiKey, baseURL, compatibility, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
 }
 
 // モデル未解決時 (--model / CHAT_DEFAULT_MODEL 未設定かつクライアントも model 未指定) に

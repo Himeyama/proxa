@@ -477,6 +477,7 @@ export async function handleMessages(c: Context): Promise<Response> {
           const finishReason = await result.finishReason;
           const stopReason = mapFinishReason(finishReason, sawToolCall);
           const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(await result.providerMetadata, cacheCapture);
+          logEntry.cacheKey = cacheCapture.promptCacheKey;
 
           enqueue({ type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: outputTokens } });
           enqueue({ type: "message_stop" });
@@ -588,6 +589,7 @@ export async function handleMessages(c: Context): Promise<Response> {
     };
 
     const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(result.providerMetadata, cacheCapture);
+    logEntry.cacheKey = cacheCapture.promptCacheKey;
     finishLog(logEntry, {
       inputTokens,
       inputCacheTokens,

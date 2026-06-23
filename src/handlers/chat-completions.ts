@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { generateText, streamText } from "ai";
 import type { Context } from "hono";
 import { config } from "../config.js";
@@ -12,6 +11,7 @@ import {
   chatToolChoiceToAnthropic,
 } from "../converters/from-chat-completions.js";
 import { injectServerTools } from "../tools/google-search.js";
+import { promptCacheKeyFromParts } from "../prompt-cache-key.js";
 import { startLog, finishLog, redactHeaders, type LogEntry, type LogToolCall } from "../log-store.js";
 import {
   isGoogleProvider,
@@ -229,15 +229,12 @@ function normalizeMaxTokensForOpenAI(body: ChatCompletionsRequest): void {
 // ルーティングされたときにヒットする。prompt_cache_key を固定するとルーティングが安定し、ヒット率が上がる。
 // メッセージ本文 (毎ターン伸びる) ではなく system+tools のみを対象にすることで、会話を通じて値が一定になる。
 function computePromptCacheKey(body: ChatCompletionsRequest): string {
-  const systemParts = (body.messages ?? [])
+  const systemText = (body.messages ?? [])
     .filter((m) => m.role === "system" || m.role === "developer")
-    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)));
+    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+    .join("\n");
   const toolsPart = body.tools ? JSON.stringify(body.tools) : "";
-  const h = createHash("sha256");
-  h.update(systemParts.join("\n"));
-  h.update(" ");
-  h.update(toolsPart);
-  return "proxa-" + h.digest("hex").slice(0, 16);
+  return promptCacheKeyFromParts(systemText, toolsPart);
 }
 
 // OpenAI/Azure 系パススルーで prompt_cache_key を解決し、ログへ記録する。

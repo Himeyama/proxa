@@ -287,6 +287,7 @@ export async function handleGenerateContent(c: Context): Promise<Response> {
           const promptTokens = usage?.promptTokens || 0;
           const completionTokens = usage?.completionTokens || 0;
           const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(await result.providerMetadata, cacheCapture);
+          logEntry.cacheKey = cacheCapture.promptCacheKey;
 
           const usageMetadata: GeminiUsageMetadata = {
             promptTokenCount: promptTokens,
@@ -375,6 +376,7 @@ export async function handleGenerateContent(c: Context): Promise<Response> {
     const promptTokens = result.usage.promptTokens || 0;
     const completionTokens = result.usage.completionTokens || 0;
     const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(result.providerMetadata, cacheCapture);
+    logEntry.cacheKey = cacheCapture.promptCacheKey;
 
     const usageMetadata: GeminiUsageMetadata = {
       promptTokenCount: promptTokens,

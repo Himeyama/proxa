@@ -69,6 +69,7 @@ src/
 ├── log-store.ts                 # 通信ログのインメモリストア (startLog / finishLog / getLogs / clearLogs)
 ├── tui-log.ts                   # フルスクリーン TUI ログビューア。マウスクリックで会話ログを折りたたみ表示
 ├── gemini-cache.ts              # Gemini 明示キャッシュ (CachedContent) を fetch 層で透過処理 (makeGeminiCacheFetch)
+├── prompt-cache-key.ts          # openai/azure/responses の上流ボディに prompt_cache_key を補う (promptCacheKeyFromParts / makePromptCacheKeyFetch)
 ├── handlers/
 │   ├── messages.ts              # POST /v1/messages の処理。ストリーム・非ストリーム両対応。toProviderOptions をエクスポート
 │   ├── responses.ts             # POST /v1/responses の処理 + buildResponsesParams / emitStreamingLoop をエクスポート
@@ -114,7 +115,7 @@ Options:
       --no-gemini-cache       明示キャッシュを無効化する
       --gemini-cache-ttl <s>  明示キャッシュの TTL (秒)。デフォルト: 600
       --strip-system-line <text>  受信したシステムプロンプトのうち <text> を含む行を除去する (大文字小文字を区別する部分一致)。カンマ区切りで複数パターン指定可、繰り返し指定も可
-      --prompt-cache-key      openai/azure/responses パススルー限定。クライアントが prompt_cache_key を未指定のとき、system + tools のハッシュから安定したキーを補う。同一プレフィックスのリクエストを同じバックエンドへ寄せ、プロンプトキャッシュのヒット率を上げる。キーは /logs に表示する
+      --prompt-cache-key      openai/azure/responses 限定。クライアントが prompt_cache_key を未指定のとき、system + tools のハッシュから安定したキーを補う。同一プレフィックスのリクエストを同じバックエンドへ寄せ、プロンプトキャッシュのヒット率を上げる。パススルーと AI SDK 経由 (/v1/messages 等) の両方に効く。キーは /logs に表示する
   -h, --help              ヘルプを表示
 ```
 
@@ -145,7 +146,7 @@ CLI オプションで上書き可能。`.env.example` をコピーして `.env`
 | `GEMINI_CACHE_TTL` | 任意 | `--gemini-cache-ttl` のフォールバック。明示キャッシュの TTL (秒)。デフォルト: 600 |
 | `GEMINI_CACHE_DEBUG` | 任意 | `1` / `true` で明示キャッシュの診断ログを stderr に出す (後述「明示キャッシュ: 診断」) |
 | `STRIP_SYSTEM_LINE` | 任意 | `--strip-system-line` のフォールバック。カンマ区切りで複数パターン可。指定文字列を含むシステムプロンプト行を除去 |
-| `PROMPT_CACHE_KEY` | 任意 | `--prompt-cache-key` のフォールバック。`1` または `true` で openai/azure/responses パススルーに `prompt_cache_key` を補う |
+| `PROMPT_CACHE_KEY` | 任意 | `--prompt-cache-key` のフォールバック。`1` または `true` で openai/azure/responses の全パス (パススルー + AI SDK 経由) に `prompt_cache_key` を補う |
 
 ## コマンド
 
@@ -447,13 +448,16 @@ google / gemini プロバイダーの認証ヘッダーは `--auth-type` (環境
 
 ### プロンプトキャッシュキー (`--prompt-cache-key`)
 
-OpenAI / Azure のプロンプトキャッシュは、JSON 整形ではなく **messages + tools の先頭トークン列の一致**で発動するが、実際のヒット率は「**同一プレフィックスのリクエストが同じバックエンドインスタンスへルーティングされるか**」に強く依存する。ルーティングは安定キー (`prompt_cache_key`、旧 `user`) が無いと負荷分散で散るため、同じプレフィックスでもヒットが確率的になる (体感で数割しか効かない症状の主因)。`--prompt-cache-key` (環境変数 `PROMPT_CACHE_KEY=1`/`true`) は、Chat Completions パススルー時に安定したキーを補ってルーティングを固定する。
+OpenAI / Azure のプロンプトキャッシュは、JSON 整形ではなく **messages + tools の先頭トークン列の一致**で発動するが、実際のヒット率は「**同一プレフィックスのリクエストが同じバックエンドインスタンスへルーティングされるか**」に強く依存する。ルーティングは安定キー (`prompt_cache_key`、旧 `user`) が無いと負荷分散で散るため、同じプレフィックスでもヒットが確率的になる (体感で数割しか効かない症状の主因)。`--prompt-cache-key` (環境変数 `PROMPT_CACHE_KEY=1`/`true`) は、openai/azure/responses への全パス (パススルー + AI SDK 経由) で安定したキーを補ってルーティングを固定する。
 
-- **対象**: `OPENAI_FAMILY_PROVIDERS` (`openai` / `azure` / `responses`) の `/v1/chat/completions` **パススルー**のみ。Gemini 変換パス・他プロバイダーには効かない (`prompt_cache_key` 非対応のため)
-- **キーの導出**: `computePromptCacheKey()` (`chat-completions.ts`) が **system / developer メッセージ + `tools`** の SHA-256 を取り、`proxa-<hex16>` を返す。メッセージ本文 (毎ターン伸びる) を含めないため、**同一会話を通じて値が一定**になりルーティングが安定する
-- **適用 (`applyPromptCacheKey`)**: クライアントが既に `prompt_cache_key` を送っていればそれを**尊重**し、ログにも記録する。未指定かつ `--prompt-cache-key` 有効時のみ導出キーを `body.prompt_cache_key` に補う。パススルーは原則無加工だが、`normalizeMaxTokensForOpenAI` / `ensureStreamUsage` と並ぶ例外措置として `handlePassthrough` 内で適用する
+- **対象**: プロバイダーが `openai` / `azure` / `responses` のとき。`/v1/chat/completions` パススルーに加え、**AI SDK 経由の `/v1/messages`・`/v1/responses`・`/v1beta/models/{model}:…` (上流が openai 系のとき)** にも効く。Gemini 変換パス・OpenRouter・ollama・custom には効かない (`prompt_cache_key` 非対応のため)
+- **キーの導出 (共通)**: `promptCacheKeyFromParts()` (`prompt-cache-key.ts`) が **system テキスト + `tools` の JSON** の SHA-256 を取り `proxa-<hex16>` を返す。メッセージ本文 (毎ターン伸びる) を含めないため、**同一会話を通じて値が一定**になりルーティングが安定する。system テキストは Chat Completions 形式なら system/developer メッセージ、Responses 形式なら `instructions` から取る
+- **2 つの注入経路**:
+  - **パススルー** (`chat-completions.ts` の `applyPromptCacheKey`): 受信ボディの `body.prompt_cache_key` を直接補う。`normalizeMaxTokensForOpenAI` / `ensureStreamUsage` と並ぶ例外措置として `handlePassthrough` 内で適用
+  - **AI SDK 経由** (`prompt-cache-key.ts` の `makePromptCacheKeyFetch`): `@ai-sdk/openai` は `prompt_cache_key` を素通ししない (`baseArgs` 固定) ため、`getProvider()` が `createOpenAI` に渡す **fetch ラッパーで上流ボディへ注入**する。解決したキーは `CacheCapture.promptCacheKey` に書き戻し、各ハンドラー (`messages.ts` / `responses.ts` / `gemini.ts`) が `resolveCacheTokens()` 後に `logEntry.cacheKey` へ写してログ記録する
+- **クライアント指定の尊重**: いずれの経路も、リクエストが既に `prompt_cache_key` を持っていればそれを**尊重**し、上書きせずログにのみ記録する
 - **ログ表示**: 解決したキー (クライアント指定 or proxa 導出) を `LogEntry.cacheKey` に記録し、`/logs` 詳細パネルに「Cache key」として表示する。連続リクエストでキーが一定かを見れば system / tools が毎ターン揺れていないか確認できる
-- **無効時 (既定)**: 何もしない。ただしクライアントが `prompt_cache_key` を付けていればその値はログに記録する
+- **無効時 (既定)**: 何もしない (`config.promptCacheKey` が false なら fetch ラッパーを挟まない)。ただしクライアントが `prompt_cache_key` を付けていればその値はログに記録する
 
 ## 変換ルール
 

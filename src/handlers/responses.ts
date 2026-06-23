@@ -253,6 +253,7 @@ export async function emitStreamingLoop(
 
   if (logEntry) {
     const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(await result.providerMetadata, cacheCapture);
+    logEntry.cacheKey = cacheCapture.promptCacheKey;
     const toolCalls = sortedTools.map((t) => ({ name: t.name, arguments: t.finalArgs ?? t.argsText }));
     finishLog(logEntry, {
       inputTokens,
@@ -410,6 +411,7 @@ export async function handleResponses(c: Context): Promise<Response> {
     };
 
     const { inputCacheTokens, outputCacheTokens } = await resolveCacheTokens(result.providerMetadata, params.cacheCapture);
+    logEntry.cacheKey = params.cacheCapture.promptCacheKey;
     finishLog(logEntry, {
       inputTokens: result.usage.promptTokens,
       inputCacheTokens,
