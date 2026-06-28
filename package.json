@@ -1,10 +1,9 @@
 {
   "name": "llmglot",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "bin": {
-    "llmglot": "./dist/index.js"
+    "llmglot": "dist/index.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

@@ -1,5 +1,7 @@
 # llmglot
 
+[![npm version](https://img.shields.io/npm/v/llmglot.svg)](https://npmjs.com/package/llmglot)
+
 Anthropic Messages API (`/v1/messages`)、OpenAI Responses API (`/v1/responses`)、OpenAI Chat Completions API (`/v1/chat/completions`)、Google Gemini API (`/v1beta/models/{model}:generateContent`) を受け取り、上流の Chat Completions API / Google Gemini API へ変換して転送するプロキシサーバー。
 
 Claude Code などの Anthropic クライアント、OpenAI Responses API クライアント、OpenAI Chat Completions クライアント、Google Gemini クライアントを、Ollama・LM Studio・vLLM などの OpenAI 互換バックエンドや Google Gemini に接続できる。
